@@ -2,13 +2,13 @@
 
 This repository packages [SivonZn/USB_SampleRate_Changer](https://github.com/SivonZn/USB_SampleRate_Changer), a clean Fork of the [original project](https://github.com/yzyhk904/USB_SampleRate_Changer), as a KernelSU/APatch module WebUI. It has no boot service: opening the module WebUI calls the bundled `usbsrctl` controller on demand.
 
-The Fork source is not vendored in this repository. [`upstream.lock`](upstream.lock) pins an exact Fork commit, and the patches listed in [`patches/series`](patches/series) are applied only while assembling the module. General-purpose fixes can therefore be validated in the Fork and proposed to the original repository independently.
+The Fork source is attached as the [`USB_SampleRate_Changer`](USB_SampleRate_Changer) Git Submodule. The parent repository's Gitlink pins an exact Fork commit, and the patches listed in [`patches/series`](patches/series) are applied only to a temporary copy while assembling the module. The Submodule remains clean and can be used directly to investigate issues, develop general-purpose fixes, and propose them to the original repository independently.
 
 ## Repository layout
 
 | Path | Purpose |
 | --- | --- |
-| `upstream.lock` | Reproducible Fork repository and commit pin |
+| `USB_SampleRate_Changer/` | Fork Submodule and reproducible source commit |
 | `patches/` | Temporary downstream changes awaiting upstream validation |
 | `module/` | KernelSU/APatch module metadata and installer overlay |
 | `backend/` | Rust command validator and controller |
@@ -69,17 +69,31 @@ The latest configuration, generated script, status and output are stored under `
 
 ## Build
 
-Node.js, Rust, the `aarch64-linux-android` Rust target, Android NDK and `zip` must be installed. The build fetches the exact commit in `upstream.lock`, verifies and applies every listed patch, builds both applications, and creates the final module under the parent Magisk workspace's `output/` directory:
+Node.js, Rust, the `aarch64-linux-android` Rust target, Android NDK and `zip` must be installed. Clone this repository with its Submodule, or initialize it after cloning:
+
+```sh
+git clone --recurse-submodules https://github.com/SivonZn/USB_SampleRate_Changer_WebUI.git
+# Existing clone:
+git submodule update --init --recursive
+```
+
+The build copies the current Submodule worktree into a temporary directory, verifies and applies every listed Patch there, builds both applications, and creates the final module under the parent Magisk workspace's `output/` directory:
 
 ```sh
 ./build.sh
 ```
 
-When the clean Fork is available beside this repository, it can be used without downloading the upstream commit again:
+Uncommitted changes inside the Submodule are intentionally included in local builds. This makes it possible to modify the upstream scripts and immediately test the assembled module without committing first:
 
 ```sh
-UPSTREAM_SOURCE_DIR=../USB_SampleRate_Changer ./build.sh
+cd USB_SampleRate_Changer
+git switch -c fix/example
+# Edit or commit the upstream fix, then return to the WebUI repository.
+cd ..
+./build.sh
 ```
+
+Before recording a new Submodule revision in this repository, commit and push the corresponding change to the Fork, then stage the updated Gitlink with `git add USB_SampleRate_Changer`.
 
 The current artifact name is `USB_SampleRate_Changer_WebUI-0.2.0.zip`. Rebuilding the same version replaces that exact file.
 

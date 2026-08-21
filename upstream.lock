@@ -1,4 +1,0 @@
-# Clean Fork source used to assemble the module. The Fork tracks the original
-# yzyhk904/USB_SampleRate_Changer repository without WebUI-specific changes.
-UPSTREAM_REPOSITORY=https://github.com/SivonZn/USB_SampleRate_Changer.git
-UPSTREAM_COMMIT=8c98d6d6077915855b73e7489d42aa787c5a2a05

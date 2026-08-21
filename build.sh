@@ -3,7 +3,7 @@ set -eu
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 WORKSPACE_DIR="$(dirname -- "$ROOT_DIR")"
-LOCK_FILE="$ROOT_DIR/upstream.lock"
+SUBMODULE_DIR="$ROOT_DIR/USB_SampleRate_Changer"
 PATCH_SERIES="$ROOT_DIR/patches/series"
 TARGET="${RUST_TARGET:-aarch64-linux-android}"
 ANDROID_API_LEVEL="${ANDROID_API_LEVEL:-24}"
@@ -21,58 +21,45 @@ if command -v rustup >/dev/null 2>&1; then
     fi
 fi
 
-if [ ! -r "$LOCK_FILE" ]; then
-    printf 'Missing upstream lock: %s\n' "$LOCK_FILE" >&2
-    exit 1
-fi
-
-# shellcheck disable=SC1090
-. "$LOCK_FILE"
-
-case "${UPSTREAM_REPOSITORY:-}" in
-    https://* | git@*) ;;
-    *)
-        printf 'Invalid UPSTREAM_REPOSITORY in %s\n' "$LOCK_FILE" >&2
-        exit 1
-        ;;
-esac
-
-case "${UPSTREAM_COMMIT:-}" in
-    *[!0-9a-fA-F]* | '')
-        printf 'UPSTREAM_COMMIT must be a full hexadecimal commit ID\n' >&2
-        exit 1
-        ;;
-esac
-
-if [ "${#UPSTREAM_COMMIT}" -ne 40 ]; then
-    printf 'UPSTREAM_COMMIT must contain exactly 40 hexadecimal characters\n' >&2
-    exit 1
-fi
-
-for command_name in cargo git npm sed zip; do
+for command_name in cargo git npm sed tar zip; do
     if ! command -v "$command_name" >/dev/null 2>&1; then
         printf 'Required command not found: %s\n' "$command_name" >&2
         exit 1
     fi
 done
 
+if [ ! -r "$PATCH_SERIES" ]; then
+    printf 'Missing patch series: %s\n' "$PATCH_SERIES" >&2
+    exit 1
+fi
+
+if [ ! -e "$SUBMODULE_DIR/.git" ]; then
+    printf 'Initializing USB_SampleRate_Changer submodule...\n'
+    if ! git -C "$ROOT_DIR" submodule update --init --recursive -- USB_SampleRate_Changer; then
+        printf 'Unable to initialize submodule: %s\n' "$SUBMODULE_DIR" >&2
+        exit 1
+    fi
+fi
+
+if ! git -C "$SUBMODULE_DIR" rev-parse --verify HEAD >/dev/null 2>&1; then
+    printf 'Invalid or uninitialized submodule: %s\n' "$SUBMODULE_DIR" >&2
+    exit 1
+fi
+
+UPSTREAM_COMMIT="$(git -C "$SUBMODULE_DIR" rev-parse HEAD)"
+UPSTREAM_STATE=clean
+if [ -n "$(git -C "$SUBMODULE_DIR" status --porcelain)" ]; then
+    UPSTREAM_STATE=modified
+    printf 'Including local USB_SampleRate_Changer worktree changes in this build.\n'
+fi
+
 BUILD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/usb-samplerate-webui.XXXXXX")"
 UPSTREAM_DIR="$BUILD_DIR/upstream"
 STAGING_DIR="$BUILD_DIR/module"
 trap 'rm -rf "$BUILD_DIR"' EXIT HUP INT TERM
 
-if [ -n "${UPSTREAM_SOURCE_DIR:-}" ]; then
-    if ! git -C "$UPSTREAM_SOURCE_DIR" cat-file -e "$UPSTREAM_COMMIT^{commit}" 2>/dev/null; then
-        printf 'Pinned upstream commit is unavailable in %s\n' "$UPSTREAM_SOURCE_DIR" >&2
-        exit 1
-    fi
-    git clone -q --no-checkout "$UPSTREAM_SOURCE_DIR" "$UPSTREAM_DIR"
-    git -C "$UPSTREAM_DIR" checkout -q --detach "$UPSTREAM_COMMIT"
-else
-    git init -q "$UPSTREAM_DIR"
-    git -C "$UPSTREAM_DIR" fetch -q --depth=1 "$UPSTREAM_REPOSITORY" "$UPSTREAM_COMMIT"
-    git -C "$UPSTREAM_DIR" checkout -q --detach FETCH_HEAD
-fi
+mkdir -p "$UPSTREAM_DIR"
+(cd "$SUBMODULE_DIR" && tar --exclude='.git' -cf - .) | (cd "$UPSTREAM_DIR" && tar -xf -)
 
 while IFS= read -r patch_name || [ -n "$patch_name" ]; do
     case "$patch_name" in
@@ -159,4 +146,4 @@ TEMP_ARCHIVE="$BUILD_DIR/$MODULE_ARCHIVE_NAME-$MODULE_VERSION.zip"
 mv -f "$TEMP_ARCHIVE" "$ARCHIVE_PATH"
 
 printf 'Built %s\n' "$ARCHIVE_PATH"
-printf 'Upstream commit: %s\n' "$UPSTREAM_COMMIT"
+printf 'USB_SampleRate_Changer commit: %s (%s worktree)\n' "$UPSTREAM_COMMIT" "$UPSTREAM_STATE"
