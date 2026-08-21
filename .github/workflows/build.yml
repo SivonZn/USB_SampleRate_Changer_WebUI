@@ -33,10 +33,11 @@ jobs:
       - name: Build module
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/28.2.13676358
+          OUTPUT_DIR: ${{ github.workspace }}/output
         run: ./build.sh
 
       - uses: actions/upload-artifact@v4
         with:
           name: USB_SampleRate_Changer_WebUI
-          path: ../output/USB_SampleRate_Changer_WebUI-*.zip
+          path: output/USB_SampleRate_Changer_WebUI-*.zip
           if-no-files-found: error
