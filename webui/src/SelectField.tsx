@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { Portal } from "solid-js/web";
 import { CheckIcon } from "./Icons";
+import type { Language } from "./i18n";
 
 export type SelectOption = readonly [value: string, label: string];
 
@@ -9,6 +10,7 @@ export default function SelectField(props: {
   title: string;
   value: string;
   options: ReadonlyArray<SelectOption>;
+  language?: Language;
   disabled?: boolean;
   onChange: (value: string) => void;
 }) {
@@ -19,6 +21,7 @@ export default function SelectField(props: {
   let optionList: HTMLDivElement | undefined;
   let ownsHistoryEntry = false;
   let closeTimer: number | undefined;
+  const englishDialog = () => props.language === "en" || (!props.language && !/[\u4e00-\u9fff]/.test(props.title));
 
   function openDialog() {
     if (open()) return;
@@ -88,7 +91,7 @@ export default function SelectField(props: {
       <Show when={open()}>
         <Portal>
           <div class="select-dialog-layer" classList={{ closing: closing() }} data-no-page-drag role="presentation">
-            <button class="select-dialog-backdrop" aria-label={`关闭${props.title}选择`} onClick={() => closeDialog()} />
+            <button class="select-dialog-backdrop" aria-label={englishDialog() ? `Close ${props.title} selector` : `关闭${props.title}选择`} onClick={() => closeDialog()} />
             <section
               class="select-dialog"
               role="dialog"
@@ -98,7 +101,7 @@ export default function SelectField(props: {
                 if (closing() && event.target === event.currentTarget) finishClose();
               }}
             >
-              <header><h2>{props.title}</h2><button type="button" class="dialog-close" aria-label={`关闭${props.title}选择`} onClick={() => closeDialog()}>×</button></header>
+              <header><h2>{props.title}</h2><button type="button" class="dialog-close" aria-label={englishDialog() ? `Close ${props.title} selector` : `关闭${props.title}选择`} onClick={() => closeDialog()}>×</button></header>
               <div class="select-option-list" role="listbox" aria-label={props.title} ref={optionList}>
                 <For each={props.options}>{([value, label]) => (
                   <button

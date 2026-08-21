@@ -9,6 +9,19 @@ TARGET="${RUST_TARGET:-aarch64-linux-android}"
 ANDROID_API_LEVEL="${ANDROID_API_LEVEL:-24}"
 OUTPUT_DIR="${OUTPUT_DIR:-$WORKSPACE_DIR/output}"
 MODULE_ARCHIVE_NAME="USB_SampleRate_Changer_WebUI"
+VERSION_FILE="$ROOT_DIR/VERSION"
+
+if [ ! -r "$VERSION_FILE" ]; then
+    printf 'Missing version file: %s\n' "$VERSION_FILE" >&2
+    exit 1
+fi
+MODULE_VERSION="$(sed -n '1p' "$VERSION_FILE" | tr -d '\r')"
+case "$MODULE_VERSION" in
+    '' | */* | *[!0-9.]* | .* | *.)
+        printf 'Invalid version in %s: %s\n' "$VERSION_FILE" "$MODULE_VERSION" >&2
+        exit 1
+        ;;
+esac
 
 # Homebrew's Rust package cannot install extra standard-library targets. When
 # rustup is available, prefer its cargo/rustc proxies so the pinned Android
@@ -97,7 +110,8 @@ for upstream_directory in templates extras; do
     cp -R "$UPSTREAM_DIR/$upstream_directory" "$STAGING_DIR/$upstream_directory"
 done
 
-cp "$ROOT_DIR/module/module.prop" "$ROOT_DIR/module/customize.sh" \
+sed "s/^version=.*/version=$MODULE_VERSION/" "$ROOT_DIR/module/module.prop" > "$STAGING_DIR/module.prop"
+cp "$ROOT_DIR/module/customize.sh" \
     "$ROOT_DIR/module/uninstall.sh" "$ROOT_DIR/module/skip_mount" "$STAGING_DIR/"
 cp "$ROOT_DIR/README.md" "$STAGING_DIR/WEBUI.md"
 
@@ -131,13 +145,11 @@ cp "$BUILD_DIR/cargo-target/$TARGET/release/usbsrctl" "$STAGING_DIR/usbsrctl"
 chmod 0755 "$STAGING_DIR/customize.sh" "$STAGING_DIR/uninstall.sh" \
     "$STAGING_DIR/USB_SampleRate_Changer.sh" "$STAGING_DIR/usbsrctl"
 
-MODULE_VERSION="$(sed -n 's/^version=//p' "$STAGING_DIR/module.prop")"
-case "$MODULE_VERSION" in
-    '' | */*)
-        printf 'Invalid module version in module.prop: %s\n' "$MODULE_VERSION" >&2
-        exit 1
-        ;;
-esac
+STAGED_MODULE_VERSION="$(sed -n 's/^version=//p' "$STAGING_DIR/module.prop")"
+if [ "$STAGED_MODULE_VERSION" != "$MODULE_VERSION" ]; then
+    printf 'Staged module version mismatch: %s != %s\n' "$STAGED_MODULE_VERSION" "$MODULE_VERSION" >&2
+    exit 1
+fi
 
 mkdir -p "$OUTPUT_DIR"
 ARCHIVE_PATH="$OUTPUT_DIR/$MODULE_ARCHIVE_NAME-$MODULE_VERSION.zip"

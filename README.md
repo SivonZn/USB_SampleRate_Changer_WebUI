@@ -95,7 +95,7 @@ cd ..
 
 Before recording a new Submodule revision in this repository, commit and push the corresponding change to the Fork, then stage the updated Gitlink with `git add USB_SampleRate_Changer`.
 
-The current artifact name is `USB_SampleRate_Changer_WebUI-0.2.0.zip`. Rebuilding the same version replaces that exact file.
+The current artifact name is `USB_SampleRate_Changer_WebUI-0.3.0.zip`. Rebuilding the same version replaces that exact file.
 
 For development checks:
 

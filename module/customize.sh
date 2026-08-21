@@ -1,7 +1,8 @@
 #!/system/bin/sh
 
 ui_print "***************************************"
-ui_print "  USB SampleRate Changer WebUI v0.2.0"
+MODULE_VERSION="$(sed -n 's/^version=//p' "${MODPATH:-.}/module.prop" 2>/dev/null || true)"
+ui_print "  USB SampleRate Changer WebUI v${MODULE_VERSION:-unknown}"
 ui_print "***************************************"
 ui_print "- SolidJS WebUI + Rust controller"
 ui_print "- No boot service; usable immediately"
