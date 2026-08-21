@@ -1,0 +1,42 @@
+name: Build module
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: webui/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: sdkmanager "ndk;28.2.13676358"
+
+      - name: Build module
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/28.2.13676358
+        run: ./build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: USB_SampleRate_Changer_WebUI
+          path: ../output/USB_SampleRate_Changer_WebUI-*.zip
+          if-no-files-found: error

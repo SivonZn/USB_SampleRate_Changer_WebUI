@@ -1,0 +1,15 @@
+[package]
+name = "usb-samplerate-controller"
+version = "0.2.0"
+edition = "2021"
+
+[[bin]]
+name = "usbsrctl"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

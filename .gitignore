@@ -1,0 +1,5 @@
+.DS_Store
+*.zip
+/backend/target/
+/webroot/
+/webui/node_modules/

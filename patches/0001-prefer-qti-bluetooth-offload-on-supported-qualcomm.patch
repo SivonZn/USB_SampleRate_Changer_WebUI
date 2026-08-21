@@ -1,0 +1,34 @@
+diff --git a/USB_SampleRate_Changer.sh b/USB_SampleRate_Changer.sh
+index d6cfb00a835b6bd7ba97625b78684a34590ed011..ec84a7fb6b3bab384c04afa3604571f0ac8608e0 100644
+--- a/USB_SampleRate_Changer.sh
++++ b/USB_SampleRate_Changer.sh
+@@ -251,8 +251,12 @@ case "$policyMode" in
+         BT_module="a2dp"
+         ;;
+     * )
+-        if [ "`getprop ro.board.platform`" = "pineapple"  -a  -r "/vendor/lib64/hw/audio.bluetooth_qti.default.so" ]; then
+-            # A workaround for Pineapple devices for no using the AOSP bluetooth module temporary
++        if { [ "`getprop ro.board.platform`" = "pineapple" ] \
++                || [ "`getprop ro.board.platform`" = "taro" ]; } \
++                && [ -r "/vendor/lib64/hw/audio.bluetooth_qti.default.so" \
++                     -o -r "/vendor/lib/hw/audio.bluetooth_qti.default.so" ]; then
++            # Qualcomm Pineapple/Taro devices expose an AOSP fallback HAL but
++            # use bluetooth_qti for the active A2DP offload path.
+             BT_module="bluetooth_qti"
+         elif [ "`getprop ro.product.board`" = "taro" -a  -r "/vendor/lib64/hw/audio.bluetooth_qti.default.so" ]; then
+             # An exception for Asus Zenfone 9
+diff --git a/functions3.shlib b/functions3.shlib
+index 9d5c9745ca4095459cdb5af25e11f7854be86fcf..65150456c5b616dd9f3243ce74f24268cb3ea974 100644
+--- a/functions3.shlib
++++ b/functions3.shlib
+@@ -248,0 +249,10 @@ function makeConfigFile()
++        elif [ "`getprop ro.bluetooth.a2dp_offload.supported`" = "true" \
++                    -a "`getprop persist.bluetooth.a2dp_offload.disabled`" != "true" \
++                    -a "`getprop vendor.audio.feature.a2dp_offload.enable`" = "true" \
++                    -a \( -r "/vendor/lib64/hw/audio.bluetooth_qti.default.so" \
++                          -o -r "/vendor/lib/hw/audio.bluetooth_qti.default.so" \) ]; then
++            # Qualcomm offload devices may also ship the generic AOSP Bluetooth
++            # HAL as a fallback. Prefer the active QTI offload path when both
++            # are present; choosing bypass-safer here leaves LDAC without a
++            # compatible primary A2DP route on taro devices.
++            bltHal="offload"
