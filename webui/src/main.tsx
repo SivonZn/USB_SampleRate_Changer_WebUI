@@ -651,7 +651,7 @@ function App() {
                     <SectionHeading eyebrow="BLUETOOTH" title="Bluetooth HAL" number="01" />
                     <p class="field-help">切换实现会修改持久属性并重启音频 HAL。</p>
                     <SelectField title="选择 Bluetooth HAL" value={bluetoothHal()} options={bluetoothHalOptions} onChange={(value) => setBluetoothHal(value)} />
-                    <div class="inline-actions"><button class="primary-button" disabled={busy()} onClick={() => runExtra(["bluetooth-hal", bluetoothHal()], "正在切换 Bluetooth HAL…", "Bluetooth HAL 已切换", `切换到 ${bluetoothHal()} 会重启音频服务，继续吗？`)}>应用</button></div>
+                    <div class="inline-actions"><button class="primary-button" disabled={busy()} onClick={() => runExtra(["bluetooth-hal", bluetoothHal()], "正在切换 Bluetooth HAL…", "Bluetooth HAL 已切换")}>应用</button></div>
                   </article>
 
                   <article class="card tool-panel">

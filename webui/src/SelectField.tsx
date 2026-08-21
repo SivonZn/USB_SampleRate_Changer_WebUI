@@ -13,24 +13,36 @@ export default function SelectField(props: {
   onChange: (value: string) => void;
 }) {
   const [open, setOpen] = createSignal(false);
+  const [closing, setClosing] = createSignal(false);
   const selectedLabel = createMemo(() => props.options.find(([value]) => value === props.value)?.[1] ?? props.value);
   const historyKey = `select-${Math.random().toString(36).slice(2)}`;
   let optionList: HTMLDivElement | undefined;
   let ownsHistoryEntry = false;
+  let closeTimer: number | undefined;
 
   function openDialog() {
     if (open()) return;
+    setClosing(false);
     window.history.pushState({ ...window.history.state, usbSrOverlay: historyKey }, "");
     ownsHistoryEntry = true;
     setOpen(true);
   }
 
-  function closeDialog(fromHistory = false) {
+  function finishClose() {
+    window.clearTimeout(closeTimer);
     setOpen(false);
+    setClosing(false);
+  }
+
+  function closeDialog(fromHistory = false) {
+    if (!open() || closing()) return;
+    setClosing(true);
     if (!fromHistory && ownsHistoryEntry && window.history.state?.usbSrOverlay === historyKey) {
       window.history.back();
     }
     ownsHistoryEntry = false;
+    window.clearTimeout(closeTimer);
+    closeTimer = window.setTimeout(finishClose, 190);
   }
 
   onMount(() => {
@@ -39,7 +51,10 @@ export default function SelectField(props: {
       closeDialog(true);
     };
     window.addEventListener("popstate", handlePopState);
-    onCleanup(() => window.removeEventListener("popstate", handlePopState));
+    onCleanup(() => {
+      window.removeEventListener("popstate", handlePopState);
+      window.clearTimeout(closeTimer);
+    });
   });
 
   createEffect(() => {
@@ -64,7 +79,7 @@ export default function SelectField(props: {
         type="button"
         class="select-trigger"
         aria-haspopup="listbox"
-        aria-expanded={open()}
+        aria-expanded={open() && !closing()}
         disabled={props.disabled}
         onClick={openDialog}
       >
@@ -72,9 +87,17 @@ export default function SelectField(props: {
       </button>
       <Show when={open()}>
         <Portal>
-          <div class="select-dialog-layer" data-no-page-drag role="presentation">
+          <div class="select-dialog-layer" classList={{ closing: closing() }} data-no-page-drag role="presentation">
             <button class="select-dialog-backdrop" aria-label={`关闭${props.title}选择`} onClick={() => closeDialog()} />
-            <section class="select-dialog" role="dialog" aria-modal="true" aria-label={props.title}>
+            <section
+              class="select-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-label={props.title}
+              onAnimationEnd={(event) => {
+                if (closing() && event.target === event.currentTarget) finishClose();
+              }}
+            >
               <header><h2>{props.title}</h2><button type="button" class="dialog-close" aria-label={`关闭${props.title}选择`} onClick={() => closeDialog()}>×</button></header>
               <div class="select-option-list" role="listbox" aria-label={props.title} ref={optionList}>
                 <For each={props.options}>{([value, label]) => (
