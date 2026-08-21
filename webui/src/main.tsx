@@ -1,6 +1,7 @@
 import {
   For,
   Show,
+  createEffect,
   createMemo,
   createSignal,
   onCleanup,
@@ -46,6 +47,14 @@ declare global {
 
 const CONTROLLER = "/data/adb/modules/usb_samplerate_changer_webui/usbsrctl";
 const WEBUI_VERSION = typeof __WEBUI_VERSION__ === "string" ? __WEBUI_VERSION__ : "dev";
+
+function detectLanguage(): Language {
+  const locales = [
+    ...(Array.isArray(navigator.languages) ? navigator.languages : []),
+    navigator.language
+  ].filter((locale): locale is string => typeof locale === "string" && locale.length > 0);
+  return locales.some((locale) => /^zh(?:-|$)/i.test(locale)) ? "zh-CN" : "en";
+}
 
 const pages = ["policy", "tools", "tuning", "settings"] as const;
 type PageId = typeof pages[number];
@@ -338,9 +347,17 @@ function App() {
   const [pageDragging, setPageDragging] = createSignal(false);
   const [logOpen, setLogOpen] = createSignal(false);
   const [confirmRequest, setConfirmRequest] = createSignal<ConfirmRequest>();
-  const [language, setLanguage] = createSignal<Language>(() => {
-    const stored = window.localStorage.getItem("usbSrLanguage");
-    return stored === "en" ? "en" : "zh-CN";
+  const storedLanguage = window.localStorage.getItem("usbSrLanguage");
+  const initialLanguage: Language = storedLanguage === "en"
+    ? "en"
+    : storedLanguage === "zh-CN"
+      ? "zh-CN"
+      : detectLanguage();
+  const [language, setLanguage] = createSignal<Language>(initialLanguage);
+  const [pendingLanguage, setPendingLanguage] = createSignal<Language>(language());
+
+  createEffect(() => {
+    document.documentElement.lang = language();
   });
 
   const tx = (value: string) => translate(language(), value);
@@ -590,7 +607,9 @@ function App() {
   }
 
   function applyLanguage() {
-    window.localStorage.setItem("usbSrLanguage", language());
+    const nextLanguage = pendingLanguage();
+    setLanguage(nextLanguage);
+    window.localStorage.setItem("usbSrLanguage", nextLanguage);
   }
 
   async function runDiagnostic() {
@@ -715,7 +734,7 @@ function App() {
 
         <div class="page-viewport" ref={pageViewport}>
           <div class="page-track">
-            <section class="page-panel" aria-label={tx("音频策略页面")}>
+            <section class="page-panel" data-page="policy" aria-label={tx("音频策略页面")}>
               <main class="page-content">
                 <section class="card preview-card">
                   <div class="section-heading"><h2>{tx("本次执行")}</h2></div>
@@ -830,8 +849,8 @@ function App() {
                 <div class="page-intro"><div class="intro-icon"><SettingsIcon /></div><div><h1>{tx("设置")}</h1></div></div>
                 <section class="card section-card">
                   <SectionHeading title={tx("语言")} />
-                  <p class="field-help">{tx("选择 WebUI 显示语言。English 的界面翻译暂未实现。")}</p>
-                  <div class="language-setting"><SelectField title={tx("选择界面语言")} value={language()} options={localizeOptions(languageOptions)} language={language()} onChange={(value) => setLanguage(value as Language)} /><button type="button" class="primary-button" onClick={applyLanguage}>{tx("应用")}</button></div>
+                  <p class="field-help">{tx("选择 WebUI 显示语言。")}</p>
+                  <div class="language-setting"><SelectField title={tx("选择界面语言")} value={pendingLanguage()} options={localizeOptions(languageOptions)} language={language()} onChange={(value) => setPendingLanguage(value as Language)} /><button type="button" class="primary-button" onClick={applyLanguage}>{tx("应用")}</button></div>
                 </section>
 
                 <section class="card section-card about-card">

@@ -227,7 +227,7 @@ const english: Record<string, string> = {
   "Jitter 基础项已重置": "Jitter baseline settings reset",
   "设置页面": "Settings page",
   "语言": "Language",
-  "选择 WebUI 显示语言。English 的界面翻译暂未实现。": "Choose the WebUI display language. The English interface is not yet fully translated.",
+  "选择 WebUI 显示语言。": "Choose the WebUI display language. Press Apply to save the selection.",
   "选择界面语言": "Select interface language",
   "关于": "About",
   "Root audio policy 工具界面": "Root audio-policy control panel",
