@@ -22,6 +22,13 @@ import {
 
 type ExecResult = { code: number; stdout: string; stderr: string };
 type ToastItem = { id: string; message: string; tone?: "success" | "error" };
+type ConfirmRequest = {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  action: () => void;
+  cancel?: () => void;
+};
 
 declare global {
   interface Window {
@@ -118,7 +125,6 @@ const resamplerOptions = [
   ["mock-mastering", "Mock Mastering · 159/240/99"]
 ] as const;
 
-const usbPeriodOptions = Array.from({ length: 400 }, (_, index) => String((index + 1) * 125));
 const diagnosticOptions = [
   ["audio", "Audio policy / AudioFlinger"],
   ["bluetooth", "Bluetooth codec 与 A2DP"],
@@ -323,6 +329,7 @@ function App() {
   const [pageProgress, setPageProgress] = createSignal(0);
   const [pageDragging, setPageDragging] = createSignal(false);
   const [logOpen, setLogOpen] = createSignal(false);
+  const [confirmRequest, setConfirmRequest] = createSignal<ConfirmRequest>();
 
   let pageViewport: HTMLDivElement | undefined;
   let carousel: EmblaCarouselType | undefined;
@@ -359,6 +366,40 @@ function App() {
     if (name === "policy-help") setPolicyHelpOpen(false);
     else setLogOpen(false);
     if (!fromHistory && window.history.state?.usbSrOverlay === name) window.history.back();
+  }
+
+  function openConfirm(request: ConfirmRequest) {
+    window.history.pushState({ ...window.history.state, usbSrPage: activePage(), usbSrOverlay: "confirm" }, "");
+    setConfirmRequest(request);
+  }
+
+  function closeConfirm(fromHistory = false) {
+    setConfirmRequest(undefined);
+    if (!fromHistory && window.history.state?.usbSrOverlay === "confirm") window.history.back();
+  }
+
+  function dismissConfirm(fromHistory = false) {
+    const cancel = confirmRequest()?.cancel;
+    closeConfirm(fromHistory);
+    cancel?.();
+  }
+
+  function acceptConfirm() {
+    const action = confirmRequest()?.action;
+    closeConfirm();
+    action?.();
+  }
+
+  function confirmWebUi(title: string, message: string, confirmLabel = "继续"): Promise<boolean> {
+    return new Promise((resolve) => {
+      openConfirm({
+        title,
+        message,
+        confirmLabel,
+        action: () => resolve(true),
+        cancel: () => resolve(false)
+      });
+    });
   }
 
   function showToast(message: string, tone?: "success" | "error") {
@@ -402,11 +443,19 @@ function App() {
     const liveStatus = parseStatus(result.stdout);
     setStatus(liveStatus);
     if (liveStatus.bluetooth_a2dp_connected !== "1") return true;
-    return window.confirm("当前检测到 A2DP 蓝牙音频设备已连接。应用音频修改会重启音频服务，可能导致蓝牙音频连接失效。是否继续应用？");
+    return confirmWebUi(
+      "蓝牙音频正在使用",
+      "当前检测到 A2DP 蓝牙音频设备已连接。应用音频修改会重启音频服务，可能导致当前蓝牙音频连接失效。",
+      "继续应用"
+    );
   }
 
   async function handleA2dpFailure(action: string) {
-    const openSettings = window.confirm(`${action}已完成，但 A2DP 路由检查失败，蓝牙媒体音频可能已经失效。是否自动打开蓝牙设置进行重连？`);
+    const openSettings = await confirmWebUi(
+      "A2DP 路由异常",
+      `${action}已完成，但 A2DP 路由检查失败，蓝牙媒体音频可能已经失效。可以打开蓝牙设置以断开并重新连接设备。`,
+      "打开蓝牙设置"
+    );
     if (!openSettings) {
       showToast("A2DP 路由检查失败，请手动断开并重新连接蓝牙音频设备", "error");
       return;
@@ -447,7 +496,6 @@ function App() {
   }
 
   async function reset() {
-    if (!window.confirm("重置会卸载生成的 audio policy bind mount，并重启音频服务。继续吗？")) return;
     setBusy(true);
     showToast("正在重置…");
     try {
@@ -469,8 +517,7 @@ function App() {
     }
   }
 
-  async function runExtra(args: string[], _pending: string, success: string, confirmText?: string) {
-    if (confirmText && !window.confirm(confirmText)) return;
+  async function runExtra(args: string[], _pending: string, success: string) {
     setBusy(true);
     try {
       const command = `${CONTROLLER} extra ${args.map(shellQuote).join(" ")}`;
@@ -488,6 +535,22 @@ function App() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function normalizeUsbPeriod(value = usbPeriod()): string {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return "2250";
+    return String(Math.min(50000, Math.max(125, Math.round(numeric / 125) * 125)));
+  }
+
+  function stepUsbPeriod(direction: -1 | 1) {
+    setUsbPeriod(normalizeUsbPeriod(String(Number(normalizeUsbPeriod()) + direction * 125)));
+  }
+
+  function applyUsbPeriod() {
+    const normalized = normalizeUsbPeriod();
+    if (normalized !== usbPeriod()) setUsbPeriod(normalized);
+    void runExtra(["usb-period", normalized], "正在应用 USB period…", "USB period 已应用");
   }
 
   async function runDiagnostic() {
@@ -519,7 +582,11 @@ function App() {
       return;
     }
     if ((dirty.includes("selinux") && jitterValues().selinux) || (dirty.includes("thermal") && jitterValues().thermal)) {
-      if (!window.confirm("将关闭 SELinux enforcing 或系统温控保护，可能降低安全性并导致过热。仍要继续吗？")) return;
+      if (!await confirmWebUi(
+        "确认高风险调优",
+        "所选修改将关闭 SELinux enforcing 或系统温控保护，可能降低系统安全性、稳定性并导致设备过热。",
+        "接受风险并应用"
+      )) return;
     }
     setBusy(true);
     const outputs: string[] = [];
@@ -546,6 +613,10 @@ function App() {
   onMount(() => {
     window.history.replaceState({ ...window.history.state, usbSrPage: activePage() }, "");
     const handlePopState = () => {
+      if (confirmRequest()) {
+        dismissConfirm(true);
+        return;
+      }
       if (policyHelpOpen()) {
         closeOverlay("policy-help", true);
         return;
@@ -604,7 +675,7 @@ function App() {
                   <div class="section-heading"><h2>本次执行</h2></div>
                   <div class="summary-line"><span class="summary-key">策略</span><strong>{policyOptions.find(([value]) => value === settings().policy)?.[1]}</strong><span class="summary-key">格式</span><strong>{displayRate(rateValue(settings()))} · {bitOptions.find(([value]) => value === settings().bitDepth)?.[1]}</strong></div>
                   <div class="tag-row"><Show when={settings().drc}><span class="tag">DRC</span></Show><Show when={settings().forceUsbv2}><span class="tag">USBv2</span></Show><Show when={settings().forceBluetoothQti}><span class="tag">Bluetooth QTI</span></Show></div>
-                  <div class="preview-actions"><button class="secondary-button" onClick={reset} disabled={busy()}>重置修改</button><button class="primary-button" onClick={apply} disabled={busy()}>{busy() ? "处理中…" : "应用"}</button></div>
+                  <div class="preview-actions"><button class="secondary-button" onClick={() => openConfirm({ title: "重置音频策略", message: "将卸载生成的 audio policy bind mount，并重启音频服务。当前音频连接可能会短暂中断。", confirmLabel: "确认重置", action: () => void reset() })} disabled={busy()}>重置修改</button><button class="primary-button" onClick={apply} disabled={busy()}>{busy() ? "处理中…" : "应用"}</button></div>
                 </section>
 
                 <section class="grid two-col">
@@ -665,14 +736,22 @@ function App() {
                       <label class="field-label">Half filter length（8–640）</label><SelectField title="选择 Half filter length" value={resamplerHalfLength()} options={Array.from({ length: 80 }, (_, index) => { const value = String((index + 1) * 8); return [value, value] as const; })} onChange={(value) => setResamplerHalfLength(value)} />
                       <label class="field-label">{resamplerCheat() ? "Cheat" : "Cutoff"} 百分比</label><SelectField title={`选择 ${resamplerCheat() ? "Cheat" : "Cutoff"} 百分比`} value={resamplerPercent()} options={Array.from({ length: resamplerCheat() ? 200 : 100 }, (_, index) => { const value = String(index + 1); return [value, `${value}%`] as const; })} onChange={(value) => setResamplerPercent(value)} />
                     </div></Show>
-                    <div class="inline-actions"><button class="secondary-button" disabled={busy()} onClick={() => runExtra(["resampler", "reset"], "正在重置重采样…", "重采样已恢复系统默认", "确定重置 AudioFlinger 重采样属性吗？")}>重置</button><button class="primary-button" disabled={busy()} onClick={() => runExtra(resamplerPreset() === "custom" ? ["resampler", "custom", resamplerBypass(), resamplerCheat() ? "cheat" : "cutoff", resamplerStopBand(), resamplerHalfLength(), resamplerPercent()] : ["resampler", resamplerPreset()], "正在应用重采样配置…", "重采样配置已应用")}>应用</button></div>
+                    <div class="inline-actions"><button class="secondary-button" disabled={busy()} onClick={() => openConfirm({ title: "重置重采样设置", message: "将清除 AudioFlinger 重采样属性并恢复系统默认行为。", confirmLabel: "确认重置", action: () => void runExtra(["resampler", "reset"], "正在重置重采样…", "重采样已恢复系统默认") })}>重置</button><button class="primary-button" disabled={busy()} onClick={() => runExtra(resamplerPreset() === "custom" ? ["resampler", "custom", resamplerBypass(), resamplerCheat() ? "cheat" : "cutoff", resamplerStopBand(), resamplerHalfLength(), resamplerPercent()] : ["resampler", resamplerPreset()], "正在应用重采样配置…", "重采样配置已应用")}>应用</button></div>
                   </article>
 
                   <article class="card tool-panel">
                     <SectionHeading eyebrow="USB TIMING" title="USB Transfer Period" number="03" />
                     <p class="field-help">125–50000 μs，使用项目支持的 125 μs 步进。</p>
-                    <SelectField title="选择 USB Transfer Period" value={usbPeriod()} options={usbPeriodOptions.map((period) => [period, `${period} μs`] as const)} onChange={(value) => setUsbPeriod(value)} />
-                    <div class="inline-actions"><button class="secondary-button" disabled={busy()} onClick={() => runExtra(["usb-period", "reset"], "正在重置 USB period…", "USB period 已恢复系统默认")}>重置</button><button class="primary-button" disabled={busy()} onClick={() => runExtra(["usb-period", usbPeriod()], "正在应用 USB period…", "USB period 已应用")}>应用</button></div>
+                    <div class="period-control" data-no-page-drag>
+                      <div class="period-stepper">
+                        <button type="button" aria-label="减少 125 微秒" onClick={() => stepUsbPeriod(-1)} disabled={busy() || Number(normalizeUsbPeriod()) <= 125}>−</button>
+                        <label><input aria-label="USB Transfer Period" inputmode="numeric" type="number" min="125" max="50000" step="125" value={usbPeriod()} onInput={(event) => setUsbPeriod(event.currentTarget.value)} onBlur={() => setUsbPeriod(normalizeUsbPeriod())} /><span>μs</span></label>
+                        <button type="button" aria-label="增加 125 微秒" onClick={() => stepUsbPeriod(1)} disabled={busy() || Number(normalizeUsbPeriod()) >= 50000}>+</button>
+                      </div>
+                      <input class="period-range" aria-label="快速调整 USB Transfer Period" type="range" min="125" max="50000" step="125" value={normalizeUsbPeriod()} onInput={(event) => setUsbPeriod(event.currentTarget.value)} />
+                      <div class="period-scale"><span>125 μs</span><strong>{normalizeUsbPeriod()} μs</strong><span>50000 μs</span></div>
+                    </div>
+                    <div class="inline-actions"><button class="secondary-button" disabled={busy()} onClick={() => openConfirm({ title: "重置 USB Transfer Period", message: "将清除当前 USB 传输周期设置并恢复系统默认值。", confirmLabel: "确认重置", action: () => void runExtra(["usb-period", "reset"], "正在重置 USB period…", "USB period 已恢复系统默认") })}>重置</button><button class="primary-button" disabled={busy()} onClick={applyUsbPeriod}>应用</button></div>
                   </article>
 
                   <article class="card tool-panel">
@@ -718,6 +797,17 @@ function App() {
       </div>
 
       <ToastHost toasts={toasts()} />
+
+      <Show when={confirmRequest()} keyed>{(request) =>
+        <div class="dialog-layer confirm-layer" data-no-page-drag role="presentation">
+          <button class="dialog-backdrop" aria-label="取消确认" onClick={() => dismissConfirm()} />
+          <section class="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+            <div class="confirm-mark" aria-hidden="true"><WarningIcon /></div>
+            <div><p class="eyebrow">RESET CONFIRMATION</p><h2 id="confirm-title">{request.title}</h2><p id="confirm-message">{request.message}</p></div>
+            <div class="confirm-actions"><button type="button" class="secondary-button" onClick={() => dismissConfirm()}>取消</button><button type="button" class="danger-button" onClick={acceptConfirm}>{request.confirmLabel}</button></div>
+          </section>
+        </div>
+      }</Show>
 
       <Show when={policyHelpOpen()}>
         <div class="dialog-layer" data-no-page-drag role="presentation">
