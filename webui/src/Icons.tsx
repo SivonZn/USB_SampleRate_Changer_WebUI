@@ -35,6 +35,10 @@ export function TuneIcon(props: IconProps) {
   return <Icon {...props}><path d="M12 3v4m0 10v4M3 12h4m10 0h4"/><circle cx="12" cy="12" r="5"/></Icon>;
 }
 
+export function SettingsIcon(props: IconProps) {
+  return <Icon {...props}><path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4"/><circle cx="12" cy="12" r="4"/></Icon>;
+}
+
 export function RefreshIcon(props: IconProps) {
   return <Icon {...props}><path d="M20 6v5h-5M4 18v-5h5"/><path d="M18.5 9A7 7 0 0 0 6 6.5L4 9m16 6-2 2.5A7 7 0 0 1 5.5 15"/></Icon>;
 }

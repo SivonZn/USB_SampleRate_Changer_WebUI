@@ -15,6 +15,7 @@ import {
   LogIcon,
   PolicyIcon,
   RefreshIcon,
+  SettingsIcon,
   ToolsIcon,
   TuneIcon,
   WarningIcon
@@ -28,6 +29,7 @@ type ConfirmRequest = {
   confirmLabel: string;
   action: () => void;
   cancel?: () => void;
+  showCancel?: boolean;
 };
 
 declare global {
@@ -41,12 +43,13 @@ declare global {
 
 const CONTROLLER = "/data/adb/modules/usb_samplerate_changer_webui/usbsrctl";
 
-const pages = ["policy", "tools", "tuning"] as const;
+const pages = ["policy", "tools", "tuning", "settings"] as const;
 type PageId = typeof pages[number];
 const pageItems: Array<{ id: PageId; label: string; icon: typeof PolicyIcon }> = [
   { id: "policy", label: "策略", icon: PolicyIcon },
   { id: "tools", label: "工具", icon: ToolsIcon },
-  { id: "tuning", label: "调优", icon: TuneIcon }
+  { id: "tuning", label: "调优", icon: TuneIcon },
+  { id: "settings", label: "设置", icon: SettingsIcon }
 ];
 
 const policyOptions = [
@@ -68,7 +71,7 @@ const policyDetails: Record<string, string> = {
   auto: "自动检查设备的音频策略格式、USB HAL 与 Bluetooth 实现，再选择匹配模板。适合首次使用和 ROM 更新后的重新探测；实际使用的 XML 可能随设备环境变化。",
   offload: "同时保留 USB 与 Bluetooth 的硬件卸载路径，让受支持的音频流尽量绕过 AudioFlinger 混音。适合卸载链路完整的设备；HAL 或厂商路由不兼容时可能出现无声。",
   "offload-hifi-playback": "使用 hifi_playback 输出路径进行 USB 硬件卸载。只适合明确提供该输出 profile 的 ROM；没有对应 profile 时通常无法建立 USB 输出。",
-  "offload-direct": "优先使用 direct_pcm / compressed_offload 一类直接输出路径，减少系统混音介入。适合 Qualcomm 等提供 Direct PCM 的设备，也是当前设备已验证的方案。",
+  "offload-direct": "优先使用 direct_pcm / compressed_offload 一类直接输出路径，减少系统混音介入。适合 Qualcomm 等提供 Direct PCM 的设备。",
   "offload-safer": "使用较保守的 USB 卸载配置，同时尽量保留原有 Bluetooth 与内部扬声器路由。适合标准 offload 会破坏其他输出设备时使用。",
   bypass: "绕过 USB 与 Bluetooth 的硬件卸载，让音频回到 AudioFlinger 混音和软件重采样路径。兼容性通常更高，但不再追求硬件直通。",
   "bypass-safer": "在绕过卸载的基础上保留更多传统内部输出与厂商路由定义。适合普通 bypass 导致蓝牙、扬声器或听筒异常的设备。",
@@ -131,6 +134,7 @@ const diagnosticOptions = [
   ["config", "音频配置文件探测"],
   ["alsa", "ALSA hw_params / DAC profile"]
 ] as const;
+const languageOptions = [["zh-CN", "中文"], ["en", "English"]] as const;
 
 const rateSelectOptions = [...rateOptions, ["custom", "自定义整数（44100–768000 Hz）"]] as const;
 const resamplerSelectOptions = [...resamplerOptions, ["custom", "自定义完整参数"]] as const;
@@ -139,17 +143,17 @@ const ioSchedulerOptions = ["*", "none", "noop", "deadline", "mq-deadline", "cfq
 const ioToneOptions = ["light", "m-light", "medium", "boost", "exp"].map((value) => [value, value] as const);
 
 const jitterFeatures = [
-  ["selinux", "SELinux", "启用会切换到 Permissive，安全风险高"],
-  ["thermal", "温控限制", "启用 reducer 会停止或弱化温控服务"],
-  ["doze", "Doze", "调整省电与后台限制"],
-  ["governor", "CPU/GPU Governor", "调整频率策略以减少调度抖动"],
-  ["camera", "Camera 服务", "停止相机相关后台服务"],
-  ["logd", "日志服务", "停止部分日志服务"],
-  ["io", "I/O 调度", "调整 scheduler、read-ahead 与队列参数"],
-  ["vm", "虚拟内存", "调整 swappiness 和脏页回写"],
-  ["wifi", "Wi-Fi 省电", "此项的修改可能跨重启保留"],
-  ["battery", "电池自适应", "调整自适应电池和充电管理"],
-  ["effect", "音效框架", "禁用系统音效框架"]
+  ["selinux", "允许 SELinux Permissive", "打开后允许系统进入 Permissive；关闭并应用则恢复 Enforcing。安全风险高。"],
+  ["thermal", "停用温控", "打开后停止或弱化温控服务；关闭并应用则尝试恢复系统温控。"],
+  ["doze", "停用 Doze", "打开后停用设备空闲省电机制，减少后台唤醒带来的调度变化。"],
+  ["governor", "锁定高性能调频", "打开后将支持的 CPU/GPU 调频策略设为高性能，减少频率切换。"],
+  ["camera", "停用相机服务", "打开后停止相机后台服务；需要使用相机时请关闭并应用。"],
+  ["logd", "停用日志服务", "打开后停止 logd 与部分追踪服务，减少持续日志写入。"],
+  ["io", "优化 I/O 调度", "打开后调整调度器、预读和队列参数，降低存储访问干扰。"],
+  ["vm", "优化虚拟内存", "打开后调整 swappiness 与脏页回写策略，减少突发写入。"],
+  ["wifi", "停用 Wi-Fi 省电", "打开后停用 Wi-Fi 挂起优化和自适应连接；部分修改可能跨重启保留。"],
+  ["battery", "停用自适应电池", "打开后停用自适应电池与自适应充电管理，减少后台干预。"],
+  ["effect", "停用系统音效", "打开后绕过系统音效框架及相关服务，减少额外音频后处理。"]
 ] as const;
 
 type JitterFeature = typeof jitterFeatures[number][0];
@@ -330,6 +334,7 @@ function App() {
   const [pageDragging, setPageDragging] = createSignal(false);
   const [logOpen, setLogOpen] = createSignal(false);
   const [confirmRequest, setConfirmRequest] = createSignal<ConfirmRequest>();
+  const [language, setLanguage] = createSignal("zh-CN");
 
   let pageViewport: HTMLDivElement | undefined;
   let carousel: EmblaCarouselType | undefined;
@@ -445,7 +450,7 @@ function App() {
     if (liveStatus.bluetooth_a2dp_connected !== "1") return true;
     return confirmWebUi(
       "蓝牙音频正在使用",
-      "当前检测到 A2DP 蓝牙音频设备已连接。应用音频修改会重启音频服务，可能导致当前蓝牙音频连接失效。",
+      "当前检测到 A2DP 蓝牙音频设备已连接，继续应用可能导致当前蓝牙音频连接失效；若失效，需要先恢复可用策略模板，并断开重新连接蓝牙设备才可以正常恢复蓝牙音频。",
       "继续应用"
     );
   }
@@ -453,7 +458,7 @@ function App() {
   async function handleA2dpFailure(action: string) {
     const openSettings = await confirmWebUi(
       "A2DP 路由异常",
-      `${action}已完成，但 A2DP 路由检查失败，蓝牙媒体音频可能已经失效。可以打开蓝牙设置以断开并重新连接设备。`,
+      `${action}已完成，但 A2DP 路由检查失败，蓝牙媒体音频可能已经失效。需要打开蓝牙设置以断开并重新连接设备。`,
       "打开蓝牙设置"
     );
     if (!openSettings) {
@@ -475,7 +480,7 @@ function App() {
     setBusy(true);
     try {
       if (!await confirmApplyWithConnectedA2dp()) return;
-      showToast("正在生成脚本并应用，audioserver 可能会短暂重启…");
+      showToast("正在应用更改，音频将会短暂断开");
       const command = `${CONTROLLER} apply ${controllerArgs(current)}`;
       const result = await rootExec(command);
       const text = `${result.stdout}${result.stderr ? `\n[stderr]\n${result.stderr}` : ""}`.trim();
@@ -553,6 +558,22 @@ function App() {
     void runExtra(["usb-period", normalized], "正在应用 USB period…", "USB period 已应用");
   }
 
+  function changeRate(value: string) {
+    update("rate", value);
+    if (value !== "custom") return;
+    window.setTimeout(() => openConfirm({
+      title: "自定义采样率提示",
+      message: "自定义采样率可能不受当前 DAC、USB Audio HAL 或音频策略支持。应用后如出现无声、失真或播放失败，请改用设备明确支持的采样率。",
+      confirmLabel: "知道了",
+      action: () => undefined,
+      showCancel: false
+    }), 220);
+  }
+
+  function applyLanguage() {
+    void language();
+  }
+
   async function runDiagnostic() {
     setBusy(true);
     setDiagnosticOutput("正在读取设备诊断信息…");
@@ -582,9 +603,13 @@ function App() {
       return;
     }
     if ((dirty.includes("selinux") && jitterValues().selinux) || (dirty.includes("thermal") && jitterValues().thermal)) {
+      const riskActions = [
+        dirty.includes("selinux") && jitterValues().selinux ? "允许 SELinux Permissive" : "",
+        dirty.includes("thermal") && jitterValues().thermal ? "停用系统温控" : ""
+      ].filter(Boolean).join("，并");
       if (!await confirmWebUi(
-        "确认高风险调优",
-        "所选修改将关闭 SELinux enforcing 或系统温控保护，可能降低系统安全性、稳定性并导致设备过热。",
+        "确认高风险操作",
+        `即将${riskActions}。这可能降低系统安全性和稳定性，并可能导致设备过热或损坏。请确认已了解风险。`,
         "接受风险并应用"
       )) return;
     }
@@ -597,7 +622,7 @@ function App() {
         if (feature === "wifi" && jitterValues().wifi && wifiNoRestart()) args.push("no-restart");
         const result = await rootExec(`${CONTROLLER} extra ${args.map(shellQuote).join(" ")}`);
         outputs.push(`[${feature}]\n${result.stdout}${result.stderr}`.trim());
-        if (result.code !== 0) throw new Error(`jitter ${feature} 执行失败，退出码 ${result.code}`);
+        if (result.code !== 0) throw new Error(`${feature} 执行失败，退出码 ${result.code}`);
       }
       setLog(outputs.join("\n\n"));
       setJitterDirty([]);
@@ -680,16 +705,15 @@ function App() {
 
                 <section class="grid two-col">
                   <article class="card section-card">
-                    <SectionHeading eyebrow="POLICY MODE" title="音频策略" number="01" />
-                    <div class="field-label-row"><label class="field-label" for="policy">策略模板</label><button type="button" class="inline-link" onClick={() => openOverlay("policy-help")}>模板说明</button></div>
+                    <SectionHeading title="音频策略" />
+                    <div class="field-label-row"><label class="field-label" for="policy">策略模板</label><button type="button" class="inline-link" onClick={() => openOverlay("policy-help")}>ⓘ 说明</button></div>
                     <SelectField id="policy" title="选择策略模板" value={settings().policy} options={policySelectOptions} onChange={(value) => update("policy", value)} />
-                    <p class="field-help">{policyOptions.find(([value]) => value === settings().policy)?.[2]}</p>
                   </article>
 
                   <article class="card section-card">
-                    <SectionHeading eyebrow="FORMAT" title="采样格式" number="02" />
+                    <SectionHeading title="采样格式" />
                     <label class="field-label" for="rate">采样率</label>
-                    <SelectField id="rate" title="选择采样率" value={settings().rate} options={rateSelectOptions} onChange={(value) => update("rate", value)} />
+                    <SelectField id="rate" title="选择采样率" value={settings().rate} options={rateSelectOptions} onChange={changeRate} />
                     <Show when={settings().rate === "custom"}><input class="number-input spaced-input" inputmode="numeric" type="number" min="44100" max="768000" step="1" value={settings().customRate} onInput={(event) => update("customRate", event.currentTarget.value)} placeholder="例如 123456" /></Show>
                     <label class="field-label" for="bits">位深 / 格式</label>
                     <SelectField id="bits" title="选择位深与格式" value={settings().bitDepth} options={bitOptions} onChange={(value) => update("bitDepth", value)} />
@@ -697,11 +721,11 @@ function App() {
                 </section>
 
                 <section class="card section-card">
-                  <SectionHeading eyebrow="SWITCHES" title="功能开关" number="03" />
+                  <SectionHeading title="功能开关" />
                   <div class="switch-grid">
-                    <ToggleRow label="DRC 动态范围控制" description="USB-only 模式不生效。" checked={settings().drc} onChange={(value) => update("drc", value)} />
-                    <ToggleRow label="强制 USBv2 HAL" description="优先使用 usbv2 HAL。" checked={settings().forceUsbv2} onChange={(value) => update("forceUsbv2", value)} />
-                    <ToggleRow label="强制 Bluetooth QTI" description="强制 Qualcomm bluetooth_qti HAL。" checked={settings().forceBluetoothQti} onChange={(value) => update("forceBluetoothQti", value)} />
+                    <ToggleRow label="DRC 动态范围控制" description="压缩过大的音量动态；USB Only 策略下不会生效。" checked={settings().drc} onChange={(value) => update("drc", value)} />
+                    <ToggleRow label="强制 USBv2 HAL" description="优先使用 USB Audio HAL v2，仅建议用于兼容性排查。" checked={settings().forceUsbv2} onChange={(value) => update("forceUsbv2", value)} />
+                    <ToggleRow label="强制 Bluetooth QTI" description="强制使用 Qualcomm bluetooth_qti 路径，非高通设备请勿启用。" checked={settings().forceBluetoothQti} onChange={(value) => update("forceBluetoothQti", value)} />
                   </div>
                 </section>
 
@@ -716,18 +740,18 @@ function App() {
 
             <section class="page-panel" aria-label="扩展工具页面">
               <main class="page-content">
-                <div class="page-intro"><div class="intro-icon"><ToolsIcon /></div><div><p class="eyebrow">EXTRAS</p><h1>音频扩展工具</h1></div></div>
+                <div class="page-intro"><div class="intro-icon"><ToolsIcon /></div><div><h1>音频扩展工具</h1></div></div>
                 <section class="grid two-col extra-grid">
                   <article class="card tool-panel">
-                    <SectionHeading eyebrow="BLUETOOTH" title="Bluetooth HAL" number="01" />
-                    <p class="field-help">切换实现会修改持久属性并重启音频 HAL。</p>
+                    <SectionHeading title="蓝牙音频 HAL" />
+                    <p class="field-help">选择系统使用的蓝牙音频实现。应用时会修改持久属性并重启音频 HAL。</p>
                     <SelectField title="选择 Bluetooth HAL" value={bluetoothHal()} options={bluetoothHalOptions} onChange={(value) => setBluetoothHal(value)} />
                     <div class="inline-actions"><button class="primary-button" disabled={busy()} onClick={() => runExtra(["bluetooth-hal", bluetoothHal()], "正在切换 Bluetooth HAL…", "Bluetooth HAL 已切换")}>应用</button></div>
                   </article>
 
                   <article class="card tool-panel">
-                    <SectionHeading eyebrow="RESAMPLER" title="AudioFlinger 重采样" number="02" />
-                    <p class="field-help">设置 stop-band、滤波器长度和截止频率预设。</p>
+                    <SectionHeading title="AudioFlinger 重采样器" />
+                    <p class="field-help">选择重采样质量预设，或自定义阻带衰减、滤波器长度与截止比例。</p>
                     <SelectField title="选择重采样预设" value={resamplerPreset()} options={resamplerSelectOptions} onChange={(value) => setResamplerPreset(value)} />
                     <Show when={resamplerPreset() === "custom"}><div class="custom-resampler">
                       <label class="field-label">生效起始采样率</label><SelectField title="选择生效起始采样率" value={resamplerBypass()} options={resamplerBypassOptions} onChange={(value) => setResamplerBypass(value)} />
@@ -740,8 +764,8 @@ function App() {
                   </article>
 
                   <article class="card tool-panel">
-                    <SectionHeading eyebrow="USB TIMING" title="USB Transfer Period" number="03" />
-                    <p class="field-help">125–50000 μs，使用项目支持的 125 μs 步进。</p>
+                    <SectionHeading title="USB 传输周期" />
+                    <p class="field-help">设置 USB 音频数据传输间隔。数值越低延迟越小，但可能降低播放稳定性。</p>
                     <div class="period-control" data-no-page-drag>
                       <div class="period-stepper">
                         <button type="button" aria-label="减少 125 微秒" onClick={() => stepUsbPeriod(-1)} disabled={busy() || Number(normalizeUsbPeriod()) <= 125}>−</button>
@@ -755,8 +779,8 @@ function App() {
                   </article>
 
                   <article class="card tool-panel">
-                    <SectionHeading eyebrow="DIAGNOSTICS" title="诊断输出" number="04" />
-                    <p class="field-help">读取 Audio、Bluetooth、配置文件和 ALSA 运行状态。</p>
+                    <SectionHeading title="音频诊断" />
+                    <p class="field-help">读取 AudioFlinger、蓝牙编解码、音频配置文件或 ALSA 设备状态。</p>
                     <SelectField title="选择诊断类型" value={diagnostic()} options={diagnosticOptions} onChange={(value) => setDiagnostic(value)} />
                     <ToggleRow label="完整输出" description="关闭时只保留关键字段。" checked={diagnosticAll()} onChange={setDiagnosticAll} />
                     <div class="inline-actions"><button class="primary-button" disabled={busy()} onClick={runDiagnostic}>运行诊断</button></div>
@@ -768,15 +792,33 @@ function App() {
 
             <section class="page-panel" aria-label="系统调优页面">
               <main class="page-content">
-                <div class="page-intro danger-intro"><div class="intro-icon"><TuneIcon /></div><div><p class="eyebrow">JITTER REDUCER</p><h1>系统抖动调节</h1></div></div>
+                <div class="page-intro danger-intro"><div class="intro-icon"><TuneIcon /></div><div><h1>系统 Jitter 优化</h1></div></div>
                 <section class="card section-card danger-card">
                   <div class="notice danger-notice"><WarningIcon /><span><strong>风险提示：</strong>这些选项可能修改 SELinux、温控、系统服务、调度器和内核参数，可能降低系统安全性、稳定性或导致设备过热。请仅启用已了解影响的项目；SELinux 与温控选项应用时会再次确认。</span></div>
                   <div class="switch-grid jitter-grid"><For each={jitterFeatures}>{(feature) => <ToggleRow label={`${feature[1]}${jitterDirty().includes(feature[0]) ? " · 待应用" : ""}`} description={feature[2]} checked={jitterValues()[feature[0]]} onChange={(value) => updateJitter(feature[0], value)} />}</For></div>
                   <Show when={jitterValues().io && jitterDirty().includes("io")}><div class="grid two-col io-options"><div><label class="field-label">I/O scheduler</label><SelectField title="选择 I/O scheduler" value={ioScheduler()} options={ioSchedulerOptions} onChange={(value) => setIoScheduler(value)} /></div><div><label class="field-label">声音倾向</label><SelectField title="选择声音倾向" value={ioTone()} options={ioToneOptions} onChange={(value) => setIoTone(value)} /></div></div></Show>
                   <Show when={jitterValues().wifi && jitterDirty().includes("wifi")}><div class="wifi-option"><ToggleRow label="切换时不重启 Wi-Fi" description="使用 upstream 的 no-restart 模式。" checked={wifiNoRestart()} onChange={setWifiNoRestart} /></div></Show>
-                  <div class="inline-actions right"><button class="secondary-button" disabled={busy()} onClick={() => runExtra(["jitter", "disable", "all"], "正在恢复全部基础 jitter 项…", "基础 jitter 项已恢复")}>恢复基础项</button><button class="primary-button" disabled={busy() || !jitterDirty().length} onClick={applyJitter}>应用 {jitterDirty().length || ""} 项修改</button></div>
+                  <div class="inline-actions right tuning-actions"><button class="secondary-button" disabled={busy()} onClick={() => openConfirm({ title: "重置 Jitter 基础项", message: "将恢复 SELinux、温控、Doze、调频、相机、日志、I/O、虚拟内存和 Wi-Fi 的基础设置。", confirmLabel: "确认重置", action: () => void runExtra(["jitter", "disable", "all"], "正在重置全部基础 jitter 项…", "Jitter 基础项已重置") })}>重置</button><button class="primary-button" disabled={busy() || !jitterDirty().length} onClick={applyJitter}>应用</button></div>
                 </section>
 
+              </main>
+            </section>
+
+            <section class="page-panel" aria-label="设置页面">
+              <main class="page-content">
+                <div class="page-intro"><div class="intro-icon"><SettingsIcon /></div><div><h1>设置</h1></div></div>
+                <section class="card section-card">
+                  <SectionHeading title="语言" />
+                  <p class="field-help">选择 WebUI 显示语言。English 的界面翻译暂未实现。</p>
+                  <div class="language-setting"><SelectField title="选择界面语言" value={language()} options={languageOptions} onChange={setLanguage} /><button type="button" class="primary-button" onClick={applyLanguage}>应用</button></div>
+                </section>
+
+                <section class="card section-card about-card">
+                  <SectionHeading title="关于" />
+                  <div class="about-brand"><span class="brand-mark"><BrandIcon /></span><div><h3>USB SampleRate Changer WebUI</h3><p>Root audio policy 工具界面</p></div></div>
+                  <div class="about-details"><div><span>模块版本</span><strong>0.2.0</strong></div></div>
+                  <p class="about-license">本项目基于 USB_SampleRate_Changer，遵循项目所附许可证。</p>
+                </section>
               </main>
             </section>
           </div>
@@ -803,8 +845,8 @@ function App() {
           <button class="dialog-backdrop" aria-label="取消确认" onClick={() => dismissConfirm()} />
           <section class="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message">
             <div class="confirm-mark" aria-hidden="true"><WarningIcon /></div>
-            <div><p class="eyebrow">RESET CONFIRMATION</p><h2 id="confirm-title">{request.title}</h2><p id="confirm-message">{request.message}</p></div>
-            <div class="confirm-actions"><button type="button" class="secondary-button" onClick={() => dismissConfirm()}>取消</button><button type="button" class="danger-button" onClick={acceptConfirm}>{request.confirmLabel}</button></div>
+            <div><h2 id="confirm-title">{request.title}</h2><p id="confirm-message">{request.message}</p></div>
+            <div class="confirm-actions" classList={{ single: request.showCancel === false }}><Show when={request.showCancel !== false}><button type="button" class="secondary-button" onClick={() => dismissConfirm()}>取消</button></Show><button type="button" class="danger-button" onClick={acceptConfirm}>{request.confirmLabel}</button></div>
           </section>
         </div>
       }</Show>
@@ -825,7 +867,7 @@ function App() {
         <div class="dialog-layer" role="presentation">
           <button class="dialog-backdrop" aria-label="关闭执行日志" onClick={() => closeOverlay("log")} />
           <section class="log-dialog" role="dialog" aria-modal="true" aria-labelledby="log-title">
-            <header><div><p class="eyebrow">LAST OUTPUT</p><h2 id="log-title">执行日志</h2></div><button class="icon-button" aria-label="关闭执行日志" onClick={() => closeOverlay("log")}>×</button></header>
+            <header><div><h2 id="log-title">执行日志</h2></div><button class="icon-button" aria-label="关闭执行日志" onClick={() => closeOverlay("log")}>×</button></header>
             <pre>{log() || "暂无执行输出。运行状态查询、诊断或应用配置后会显示在这里。"}</pre>
           </section>
         </div>
@@ -838,7 +880,7 @@ function ToastHost(props: { toasts: ToastItem[] }) {
   return <div id="toast-container" aria-live="polite"><For each={props.toasts}>{(toast) => <div class={`toast${toast.tone ? ` ${toast.tone}` : ""}`}>{toast.message}</div>}</For></div>;
 }
 
-function SectionHeading(props: { eyebrow: string; title: string; number: string }) {
+function SectionHeading(props: { title: string }) {
   return <div class="section-heading"><h2>{props.title}</h2></div>;
 }
 
