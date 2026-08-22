@@ -94,7 +94,7 @@ while IFS= read -r patch_name || [ -n "$patch_name" ]; do
 done < "$PATCH_SERIES"
 
 mkdir -p "$STAGING_DIR/core"
-for upstream_file in USB_SampleRate_Changer.sh functions3.shlib README.md LICENSE changelog.md; do
+for upstream_file in USB_SampleRate_Changer.sh functions3.shlib LICENSE; do
     if [ ! -e "$UPSTREAM_DIR/$upstream_file" ]; then
         printf 'Expected upstream file is missing: %s\n' "$upstream_file" >&2
         exit 1
@@ -103,7 +103,7 @@ for upstream_file in USB_SampleRate_Changer.sh functions3.shlib README.md LICENS
         USB_SampleRate_Changer.sh | functions3.shlib)
             cp "$UPSTREAM_DIR/$upstream_file" "$STAGING_DIR/core/$upstream_file"
             ;;
-        *)
+        LICENSE)
             cp "$UPSTREAM_DIR/$upstream_file" "$STAGING_DIR/$upstream_file"
             ;;
     esac
@@ -120,7 +120,6 @@ done
 sed "s/^version=.*/version=$MODULE_VERSION/" "$ROOT_DIR/module/module.prop" > "$STAGING_DIR/module.prop"
 cp "$ROOT_DIR/module/customize.sh" \
     "$ROOT_DIR/module/uninstall.sh" "$ROOT_DIR/module/skip_mount" "$STAGING_DIR/"
-cp "$ROOT_DIR/README.md" "$STAGING_DIR/WEBUI.md"
 
 (cd "$ROOT_DIR/webui" && npm ci && WEBUI_OUT_DIR="$STAGING_DIR/webroot" npm run build)
 

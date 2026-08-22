@@ -1,6 +1,6 @@
 id=usb_samplerate_changer_webui
 name=USB SampleRate Changer WebUI
-version=0.4.0
-versionCode=400
+version=1.0.0
+versionCode=1000
 author=zyhk / WebUI wrapper by Sivon
-description=SolidJS + Rust WebUI wrapper for USB_SampleRate_Changer with guarded mount-namespace and A2DP recovery.
+description=A WebUI wrapper for USB_SampleRate_Changer (*Not only for USB)
