@@ -30,8 +30,8 @@ ui_print "- Audio policy XML: $POLICY_FILE"
 
 touch "$MODPATH/skip_mount"
 set_perm "$MODPATH/usbsrctl" 0 0 0755
-set_perm "$MODPATH/USB_SampleRate_Changer.sh" 0 0 0755
-set_perm "$MODPATH/functions3.shlib" 0 0 0644
-set_perm_recursive "$MODPATH/templates" 0 0 0755 0644
-set_perm_recursive "$MODPATH/extras" 0 0 0755 0644
+set_perm "$MODPATH/core/USB_SampleRate_Changer.sh" 0 0 0755
+set_perm "$MODPATH/core/functions3.shlib" 0 0 0644
+set_perm_recursive "$MODPATH/core/templates" 0 0 0755 0644
+set_perm_recursive "$MODPATH/core/extras" 0 0 0755 0644
 set_perm_recursive "$MODPATH/webroot" 0 0 0755 0644

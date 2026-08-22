@@ -4,12 +4,11 @@ export type Language = "zh-CN" | "en";
 const english: Record<string, string> = {
   "策略": "Policy",
   "工具": "Tools",
-  "调优": "Tuning",
+  "调优": "Jitter",
   "设置": "Settings",
   "中文": "Chinese",
   "本次执行": "Current configuration",
   "格式": "Format",
-  "重置修改": "Reset changes",
   "采样率": "Sample rate",
   "位深 / 格式": "Bit depth / format",
   "说明": "Guide",

@@ -14,6 +14,9 @@ The Fork source is attached as the [`USB_SampleRate_Changer`](USB_SampleRate_Cha
 | `backend/` | Rust command validator and controller |
 | `webui/` | SolidJS WebUI source |
 | `build.sh` | Fetch, patch, compile and package pipeline |
+| `core/` (in the built module) | Bundled upstream scripts, templates and extras |
+
+In the built module, upstream scripts and their runtime assets live under `core/`. The Magisk-required `customize.sh` and `uninstall.sh` remain at the module root.
 
 ## Parameter mapping
 
@@ -58,7 +61,7 @@ SolidJS WebUI
   -> Rust validates a fixed option schema
   -> /data/adb/usb_samplerate_changer_webui/generated/*.sh
   -> select the audioserver mount namespace when required
-  -> execute the selected bundled upstream script
+  -> execute the selected upstream script from the module's `core/` directory
 ```
 
 When the controller starts outside the audioserver namespace, it retries the generated script through `su --mount-master`. Audio-policy apply/reset scripts perform the namespace comparison again, so a silently failed namespace switch cannot produce a false success. Extra scripts use the same controller routing and operation lock.
@@ -95,7 +98,7 @@ cd ..
 
 Before recording a new Submodule revision in this repository, commit and push the corresponding change to the Fork, then stage the updated Gitlink with `git add USB_SampleRate_Changer`.
 
-The current artifact name is `USB_SampleRate_Changer_WebUI-0.3.0.zip`. Rebuilding the same version replaces that exact file.
+The current artifact name is `USB_SampleRate_Changer_WebUI-0.4.0.zip`. Rebuilding the same version replaces that exact file.
 
 For development checks:
 

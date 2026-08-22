@@ -740,7 +740,7 @@ function App() {
                   <div class="section-heading"><h2>{tx("本次执行")}</h2></div>
                   <div class="summary-line"><span class="summary-key">{tx("策略")}</span><strong>{tx(policyOptions.find(([value]) => value === settings().policy)?.[1] ?? "")}</strong><span class="summary-key">{tx("格式")}</span><strong>{tx(displayRate(rateValue(settings())))} · {tx(bitOptions.find(([value]) => value === settings().bitDepth)?.[1] ?? "")}</strong></div>
                   <div class="tag-row"><Show when={settings().drc}><span class="tag">DRC</span></Show><Show when={settings().forceUsbv2}><span class="tag">USBv2</span></Show><Show when={settings().forceBluetoothQti}><span class="tag">Bluetooth QTI</span></Show></div>
-                  <div class="preview-actions"><button class="secondary-button" onClick={() => openConfirm({ title: "重置音频策略", message: "将卸载生成的 audio policy bind mount，并重启音频服务。当前音频连接可能会短暂中断。", confirmLabel: "确认重置", action: () => void reset() })} disabled={busy()}>{tx("重置修改")}</button><button class="primary-button" onClick={apply} disabled={busy()}>{busy() ? tx("处理中…") : tx("应用")}</button></div>
+                  <div class="preview-actions"><button class="secondary-button" onClick={() => openConfirm({ title: "重置音频策略", message: "将卸载生成的 audio policy bind mount，并重启音频服务。当前音频连接可能会短暂中断。", confirmLabel: "确认重置", action: () => void reset() })} disabled={busy()}>{tx("重置")}</button><button class="primary-button" onClick={apply} disabled={busy()}>{busy() ? tx("处理中…") : tx("应用")}</button></div>
                 </section>
 
                 <section class="grid two-col">

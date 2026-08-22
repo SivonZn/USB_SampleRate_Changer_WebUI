@@ -93,13 +93,20 @@ while IFS= read -r patch_name || [ -n "$patch_name" ]; do
     git -C "$UPSTREAM_DIR" apply "$patch_path"
 done < "$PATCH_SERIES"
 
-mkdir -p "$STAGING_DIR"
+mkdir -p "$STAGING_DIR/core"
 for upstream_file in USB_SampleRate_Changer.sh functions3.shlib README.md LICENSE changelog.md; do
     if [ ! -e "$UPSTREAM_DIR/$upstream_file" ]; then
         printf 'Expected upstream file is missing: %s\n' "$upstream_file" >&2
         exit 1
     fi
-    cp "$UPSTREAM_DIR/$upstream_file" "$STAGING_DIR/$upstream_file"
+    case "$upstream_file" in
+        USB_SampleRate_Changer.sh | functions3.shlib)
+            cp "$UPSTREAM_DIR/$upstream_file" "$STAGING_DIR/core/$upstream_file"
+            ;;
+        *)
+            cp "$UPSTREAM_DIR/$upstream_file" "$STAGING_DIR/$upstream_file"
+            ;;
+    esac
 done
 
 for upstream_directory in templates extras; do
@@ -107,7 +114,7 @@ for upstream_directory in templates extras; do
         printf 'Expected upstream directory is missing: %s\n' "$upstream_directory" >&2
         exit 1
     fi
-    cp -R "$UPSTREAM_DIR/$upstream_directory" "$STAGING_DIR/$upstream_directory"
+    cp -R "$UPSTREAM_DIR/$upstream_directory" "$STAGING_DIR/core/$upstream_directory"
 done
 
 sed "s/^version=.*/version=$MODULE_VERSION/" "$ROOT_DIR/module/module.prop" > "$STAGING_DIR/module.prop"
@@ -143,7 +150,9 @@ CARGO_TARGET_DIR="$BUILD_DIR/cargo-target" \
 cp "$BUILD_DIR/cargo-target/$TARGET/release/usbsrctl" "$STAGING_DIR/usbsrctl"
 
 chmod 0755 "$STAGING_DIR/customize.sh" "$STAGING_DIR/uninstall.sh" \
-    "$STAGING_DIR/USB_SampleRate_Changer.sh" "$STAGING_DIR/usbsrctl"
+    "$STAGING_DIR/usbsrctl"
+chmod 0755 "$STAGING_DIR/core/USB_SampleRate_Changer.sh"
+chmod 0644 "$STAGING_DIR/core/functions3.shlib"
 
 STAGED_MODULE_VERSION="$(sed -n 's/^version=//p' "$STAGING_DIR/module.prop")"
 if [ "$STAGED_MODULE_VERSION" != "$MODULE_VERSION" ]; then

@@ -10,6 +10,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 const CONTROLLER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const STATE_ROOT: &str = "/data/adb/usb_samplerate_changer_webui";
 const SETTINGS_VERSION: &str = "2";
+const CORE_DIR: &str = "core";
 
 const POLICIES: &[(&str, &str, &str)] = &[
     ("auto", "--auto", "自动检测"),
@@ -232,7 +233,7 @@ const RESAMPLER_PRESETS: &[(&str, &[&str])] = &[
 fn run_extra(args: &[String]) -> Result<i32, String> {
     let command = parse_extra_command(args)?;
     let module_dir = module_dir()?;
-    let script_path = module_dir.join("extras").join(command.script);
+    let script_path = module_dir.join(CORE_DIR).join("extras").join(command.script);
     if !script_path.is_file() {
         return Err(format!(
             "extras script not found: {}",
@@ -643,7 +644,7 @@ fn validate_settings(settings: &Settings, module_dir: &Path) -> Result<(), Strin
         (false, Some(_)) => return Err("--test-template requires --test".to_string()),
         (false, None) => {}
     }
-    let script = module_dir.join("USB_SampleRate_Changer.sh");
+    let script = module_dir.join(CORE_DIR).join("USB_SampleRate_Changer.sh");
     if !script.is_file() {
         return Err(format!("upstream script not found: {}", script.display()));
     }
@@ -663,7 +664,7 @@ fn validate_template(template: &str, module_dir: &Path) -> Result<(), String> {
     {
         return Err(format!("unsafe template path: {template}"));
     }
-    let path = module_dir.join("templates").join(template);
+    let path = module_dir.join(CORE_DIR).join("templates").join(template);
     if !path.is_file() {
         return Err(format!("template does not exist: {template}"));
     }
@@ -717,7 +718,7 @@ fn shell_quote(value: &str) -> String {
 }
 
 fn render_script(settings: &Settings, module_dir: &Path, action: Action) -> String {
-    let script = module_dir.join("USB_SampleRate_Changer.sh");
+    let script = module_dir.join(CORE_DIR).join("USB_SampleRate_Changer.sh");
     let command = std::iter::once("/system/bin/sh".to_string())
         .chain(std::iter::once(script.to_string_lossy().into_owned()))
         .chain(upstream_args(settings, action))
@@ -869,7 +870,7 @@ fn validate_settings_for_action(
     match action {
         Action::Apply => validate_settings(settings, module_dir),
         Action::Reset => {
-            let script = module_dir.join("USB_SampleRate_Changer.sh");
+            let script = module_dir.join(CORE_DIR).join("USB_SampleRate_Changer.sh");
             if script.is_file() {
                 Ok(())
             } else {
@@ -1086,7 +1087,7 @@ fn print_status(module_dir: &Path) {
 }
 
 fn upstream_script_version(module_dir: &Path) -> String {
-    fs::read_to_string(module_dir.join("USB_SampleRate_Changer.sh"))
+    fs::read_to_string(module_dir.join(CORE_DIR).join("USB_SampleRate_Changer.sh"))
         .ok()
         .and_then(|source| {
             source.lines().find_map(|line| {
@@ -1152,7 +1153,7 @@ fn print_schema(module_dir: &Path) {
 
 fn print_templates(module_dir: &Path) {
     println!("templates_begin");
-    for template in collect_templates(&module_dir.join("templates")) {
+    for template in collect_templates(&module_dir.join(CORE_DIR).join("templates")) {
         println!("template={template}");
     }
     println!("templates_end");
@@ -1304,6 +1305,7 @@ mod tests {
         };
         let script = render_script(&settings, &module_fixture(), Action::Apply);
         assert!(script.contains("readlink /proc/self/ns/mnt"));
+        assert!(script.contains("/core/USB_SampleRate_Changer.sh"));
         assert!(script.contains("--offload-direct"));
         assert!(script.contains("--drc"));
         assert!(script.contains("--force-usbv2"));
