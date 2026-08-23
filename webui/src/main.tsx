@@ -41,6 +41,7 @@ declare global {
     __usbSrCallbacks?: Record<string, (code: number, stdout: string, stderr: string) => void>;
     ksu?: {
       exec?: (command: string, options?: string, callback?: string) => void | string | Promise<unknown>;
+      spawn?: (command: string, args: string, options?: string, callback?: string) => void;
     };
   }
 }
@@ -222,8 +223,108 @@ const defaultSettings = (): Settings => ({
 });
 
 let callbackSequence = 0;
+let spawnSequence = 0;
+
+type SpawnStream = {
+  on: (event: "data", callback: (data: string) => void) => void;
+  emit: (event: "data", data: string) => void;
+};
+
+type SpawnChild = {
+  stdout: SpawnStream;
+  stderr: SpawnStream;
+  on: (event: "exit" | "error", callback: (value: number | Error) => void) => void;
+  emit: (event: "exit" | "error", value: number | Error) => void;
+};
+
+function createSpawnStream(): SpawnStream {
+  const listeners: Array<(data: string) => void> = [];
+  return {
+    on(event, callback) {
+      if (event === "data") listeners.push(callback);
+    },
+    emit(event, data) {
+      if (event === "data") listeners.forEach((callback) => callback(data));
+    }
+  };
+}
+
+function createSpawnChild(): SpawnChild {
+  const listeners: Record<"exit" | "error", Array<(value: number | Error) => void>> = {
+    exit: [],
+    error: []
+  };
+  return {
+    stdout: createSpawnStream(),
+    stderr: createSpawnStream(),
+    on(event, callback) {
+      listeners[event].push(callback);
+    },
+    emit(event, value) {
+      listeners[event].forEach((callback) => callback(value));
+    }
+  };
+}
+
+function rootSpawn(command: string): Promise<ExecResult> {
+  return new Promise((resolve, reject) => {
+    const ksu = window.ksu;
+    if (!ksu || typeof ksu.spawn !== "function") {
+      reject(new Error("KernelSU/APatch WebUI spawn 接口不可用"));
+      return;
+    }
+
+    const id = `spawn${Date.now().toString(36)}_${(++spawnSequence).toString(36)}`;
+    const callbackRef = `__usbSrSpawn_${id}`;
+    const child = createSpawnChild();
+    const callbacks = window as unknown as Record<string, unknown>;
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    let settled = false;
+
+    const cleanup = () => {
+      delete callbacks[callbackRef];
+      window.clearTimeout(timeout);
+    };
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error instanceof Error ? error : new Error(String(error)));
+    };
+
+    child.stdout.on("data", (data) => stdout.push(String(data ?? "")));
+    child.stderr.on("data", (data) => stderr.push(String(data ?? "")));
+    child.on("exit", (code) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve({
+        code: Number(code),
+        stdout: stdout.join("\n"),
+        stderr: stderr.join("\n")
+      });
+    });
+    child.on("error", fail);
+    callbacks[callbackRef] = child;
+
+    const timeout = window.setTimeout(() => {
+      fail(new Error("root 命令执行超时"));
+    }, 120000);
+
+    try {
+      // KernelSU and APatch both expect JSON-encoded args/options here. Keep
+      // the existing shell-quoted command so this remains compatible with the
+      // controller's current command construction and the exec fallback.
+      ksu.spawn(command, "[]", "{}", callbackRef);
+    } catch (error) {
+      fail(error);
+    }
+  });
+}
 
 function rootExec(command: string): Promise<ExecResult> {
+  if (typeof window.ksu?.spawn === "function") return rootSpawn(command);
   return new Promise((resolve, reject) => {
     const ksu = window.ksu;
     if (!ksu || typeof ksu.exec !== "function") {
@@ -462,8 +563,8 @@ function App() {
     setSettings((current) => ({ ...current, [key]: value }));
   };
 
-  async function refresh(showSuccess = true) {
-    setBusy(true);
+  async function refresh(showSuccess = true, manageBusy = true): Promise<boolean> {
+    if (manageBusy) setBusy(true);
     try {
       const result = await rootExec(`${CONTROLLER} status`);
       if (result.code !== 0) throw new Error(result.stderr || result.stdout || tx("读取状态失败"));
@@ -471,10 +572,12 @@ function App() {
       setStatus(parsed);
       setSettings(initialFromStatus(parsed));
       if (showSuccess) showToast(tx("状态已更新"));
+      return true;
     } catch (error) {
       showToast(String(error), "error");
+      return false;
     } finally {
-      setBusy(false);
+      if (manageBusy) setBusy(false);
     }
   }
 
@@ -523,12 +626,12 @@ function App() {
       setLog(text || `exit=${result.code}`);
       if (result.code === 72) {
         await handleA2dpFailure("音频策略");
-        await refresh(false);
+        await refresh(false, false);
         return;
       }
       if (result.code !== 0) throw new Error(text || `应用失败，退出码 ${result.code}`);
-      showToast(result.stdout.includes("bluetooth_a2dp_before=1") ? tx("配置已应用，A2DP 路由正常") : tx("配置已应用"));
-      await refresh(false);
+      const refreshed = await refresh(false, false);
+      if (refreshed) showToast(result.stdout.includes("bluetooth_a2dp_before=1") ? tx("配置已应用，A2DP 路由正常") : tx("配置已应用"));
     } catch (error) {
       showToast(String(error), "error");
     } finally {
@@ -545,12 +648,12 @@ function App() {
       setLog(text || `exit=${result.code}`);
       if (result.code === 72) {
         await handleA2dpFailure("重置");
-        await refresh(false);
+        await refresh(false, false);
         return;
       }
       if (result.code !== 0) throw new Error(text || `重置失败，退出码 ${result.code}`);
-      showToast(tx("已重置"));
-      await refresh(false);
+      const refreshed = await refresh(false, false);
+      if (refreshed) showToast(tx("已重置"));
     } catch (error) {
       showToast(String(error), "error");
     } finally {
@@ -592,6 +695,37 @@ function App() {
     const normalized = normalizeUsbPeriod();
     if (normalized !== usbPeriod()) setUsbPeriod(normalized);
     void runExtra(["usb-period", normalized], "正在应用 USB period…", "USB period 已应用");
+  }
+
+  function normalizeResamplerValue(value: string, min: number, max: number, step: number, fallback: string): string {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return fallback;
+    return String(Math.min(max, Math.max(min, min + Math.round((numeric - min) / step) * step)));
+  }
+
+  function normalizeResamplerStopBand(value = resamplerStopBand()): string {
+    return normalizeResamplerValue(value, 20, 242, 1, "179");
+  }
+
+  function normalizeResamplerHalfLength(value = resamplerHalfLength()): string {
+    return normalizeResamplerValue(value, 8, 640, 8, "408");
+  }
+
+  function normalizeResamplerPercent(value = resamplerPercent(), cheat = resamplerCheat()): string {
+    return normalizeResamplerValue(value, 1, cheat ? 200 : 100, 1, "99");
+  }
+
+  function stepResamplerStopBand(direction: -1 | 1) {
+    setResamplerStopBand(normalizeResamplerValue(String(Number(normalizeResamplerStopBand()) + direction), 20, 242, 1, "179"));
+  }
+
+  function stepResamplerHalfLength(direction: -1 | 1) {
+    setResamplerHalfLength(normalizeResamplerValue(String(Number(normalizeResamplerHalfLength()) + direction * 8), 8, 640, 8, "408"));
+  }
+
+  function stepResamplerPercent(direction: -1 | 1) {
+    const normalized = normalizeResamplerPercent();
+    setResamplerPercent(normalizeResamplerPercent(String(Number(normalized) + direction), resamplerCheat()));
   }
 
   function changeRate(value: string) {
@@ -795,12 +929,12 @@ function App() {
                     <SelectField title={tx("选择重采样预设")} value={resamplerPreset()} options={localizeOptions(resamplerSelectOptions)} language={language()} onChange={(value) => setResamplerPreset(value)} />
                     <Show when={resamplerPreset() === "custom"}><div class="custom-resampler">
                       <label class="field-label">{tx("生效起始采样率")}</label><SelectField title={tx("选择生效起始采样率")} value={resamplerBypass()} options={localizeOptions(resamplerBypassOptions)} language={language()} onChange={(value) => setResamplerBypass(value)} />
-                      <ToggleRow label={tx("Cheat 模式")} description={tx("关闭时使用标准 cutoff_percent。")} checked={resamplerCheat()} onChange={setResamplerCheat} />
-                      <label class="field-label">{tx("Stop band（20–242 dB）")}</label><SelectField title={tx("选择 Stop band")} value={resamplerStopBand()} options={Array.from({ length: 223 }, (_, index) => { const value = String(index + 20); return [value, `${value} dB`] as const; })} language={language()} onChange={(value) => setResamplerStopBand(value)} />
-                      <label class="field-label">{tx("Half filter length（8–640）")}</label><SelectField title={tx("选择 Half filter length")} value={resamplerHalfLength()} options={Array.from({ length: 80 }, (_, index) => { const value = String((index + 1) * 8); return [value, value] as const; })} language={language()} onChange={(value) => setResamplerHalfLength(value)} />
-                      <label class="field-label">{resamplerCheat() ? "Cheat" : "Cutoff"} {tx("百分比")}</label><SelectField title={`${tx("选择") ?? "Select"} ${resamplerCheat() ? "Cheat" : "Cutoff"} ${tx("百分比")}`} value={resamplerPercent()} options={Array.from({ length: resamplerCheat() ? 200 : 100 }, (_, index) => { const value = String(index + 1); return [value, `${value}%`] as const; })} language={language()} onChange={(value) => setResamplerPercent(value)} />
+                      <ToggleRow label={tx("补偿模式（Cheat）")} description={tx("关闭时使用标准截止百分比。")} checked={resamplerCheat()} onChange={(value) => { setResamplerCheat(value); setResamplerPercent(normalizeResamplerPercent(resamplerPercent(), value)); }} />
+                      <NumberControl label={tx("阻带衰减")} value={resamplerStopBand()} min={20} max={242} step={1} unit="dB" decreaseLabel={tx("减少 1 dB")} increaseLabel={tx("增加 1 dB")} rangeLabel={tx("快速调整阻带衰减")} onInput={setResamplerStopBand} onBlur={() => setResamplerStopBand(normalizeResamplerStopBand())} onStep={stepResamplerStopBand} disabled={busy()} />
+                      <NumberControl label={tx("半滤波器长度")} value={resamplerHalfLength()} min={8} max={640} step={8} decreaseLabel={tx("减少 8")} increaseLabel={tx("增加 8")} rangeLabel={tx("快速调整半滤波器长度")} onInput={setResamplerHalfLength} onBlur={() => setResamplerHalfLength(normalizeResamplerHalfLength())} onStep={stepResamplerHalfLength} disabled={busy()} />
+                      <NumberControl label={resamplerCheat() ? tx("补偿百分比（Cheat）") : tx("截止百分比")} value={resamplerPercent()} min={1} max={resamplerCheat() ? 200 : 100} step={1} unit="%" decreaseLabel={tx("减少 1 个百分点")} increaseLabel={tx("增加 1 个百分点")} rangeLabel={tx("快速调整百分比")} onInput={setResamplerPercent} onBlur={() => setResamplerPercent(normalizeResamplerPercent())} onStep={stepResamplerPercent} disabled={busy()} />
                     </div></Show>
-                    <div class="inline-actions"><button class="secondary-button" disabled={busy()} onClick={() => openConfirm({ title: "重置重采样设置", message: "将清除 AudioFlinger 重采样属性并恢复系统默认行为。", confirmLabel: "确认重置", action: () => void runExtra(["resampler", "reset"], "正在重置重采样…", "重采样已恢复系统默认") })}>{tx("重置")}</button><button class="primary-button" disabled={busy()} onClick={() => runExtra(resamplerPreset() === "custom" ? ["resampler", "custom", resamplerBypass(), resamplerCheat() ? "cheat" : "cutoff", resamplerStopBand(), resamplerHalfLength(), resamplerPercent()] : ["resampler", resamplerPreset()], "正在应用重采样配置…", "重采样配置已应用")}>{tx("应用")}</button></div>
+                    <div class="inline-actions"><button class="secondary-button" disabled={busy()} onClick={() => openConfirm({ title: "重置重采样设置", message: "将清除 AudioFlinger 重采样属性并恢复系统默认行为。", confirmLabel: "确认重置", action: () => void runExtra(["resampler", "reset"], "正在重置重采样…", "重采样已恢复系统默认") })}>{tx("重置")}</button><button class="primary-button" disabled={busy()} onClick={() => runExtra(resamplerPreset() === "custom" ? ["resampler", "custom", resamplerBypass(), resamplerCheat() ? "cheat" : "cutoff", normalizeResamplerStopBand(), normalizeResamplerHalfLength(), normalizeResamplerPercent()] : ["resampler", resamplerPreset()], "正在应用重采样配置…", "重采样配置已应用")}>{tx("应用")}</button></div>
                   </article>
 
                   <article class="card tool-panel">
@@ -926,6 +1060,34 @@ function SectionHeading(props: { title: string }) {
 
 function ToggleRow(props: { label: string; description: string; checked: boolean; disabled?: boolean; onChange: (value: boolean) => void }) {
   return <label class={`switch-row ${props.disabled ? "disabled" : ""}`}><span class="switch-copy"><strong>{props.label}</strong><small>{props.description}</small></span><input type="checkbox" checked={props.checked} disabled={props.disabled} onChange={(event) => props.onChange(event.currentTarget.checked)} /><span class="switch-track"><span /></span></label>;
+}
+
+function NumberControl(props: {
+  label: string;
+  value: string;
+  min: number;
+  max: number;
+  step: number;
+  unit?: string;
+  decreaseLabel: string;
+  increaseLabel: string;
+  rangeLabel: string;
+  onInput: (value: string) => void;
+  onBlur: () => void;
+  onStep: (direction: -1 | 1) => void;
+  disabled?: boolean;
+}) {
+  const numericValue = () => Number(props.value);
+  return <div class="period-control parameter-control" data-no-page-drag>
+    <label class="field-label">{props.label}</label>
+    <div class="period-stepper">
+      <button type="button" aria-label={props.decreaseLabel} onClick={() => props.onStep(-1)} disabled={props.disabled || numericValue() <= props.min}>−</button>
+      <label><input aria-label={props.label} inputmode="numeric" type="number" min={props.min} max={props.max} step={props.step} value={props.value} onInput={(event) => props.onInput(event.currentTarget.value)} onBlur={props.onBlur} /><Show when={props.unit}><span>{props.unit}</span></Show></label>
+      <button type="button" aria-label={props.increaseLabel} onClick={() => props.onStep(1)} disabled={props.disabled || numericValue() >= props.max}>+</button>
+    </div>
+    <input class="period-range" aria-label={props.rangeLabel} type="range" min={props.min} max={props.max} step={props.step} value={props.value} onInput={(event) => props.onInput(event.currentTarget.value)} onChange={props.onBlur} disabled={props.disabled} />
+    <div class="period-scale"><span>{props.min}{props.unit ? ` ${props.unit}` : ""}</span><strong>{props.value}{props.unit ? ` ${props.unit}` : ""}</strong><span>{props.max}{props.unit ? ` ${props.unit}` : ""}</span></div>
+  </div>;
 }
 
 render(() => <App />, document.getElementById("app")!);

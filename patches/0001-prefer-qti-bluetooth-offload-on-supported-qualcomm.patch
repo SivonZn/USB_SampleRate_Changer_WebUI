@@ -18,10 +18,13 @@ index d6cfb00a835b6bd7ba97625b78684a34590ed011..ec84a7fb6b3bab384c04afa3604571f0
          elif [ "`getprop ro.product.board`" = "taro" -a  -r "/vendor/lib64/hw/audio.bluetooth_qti.default.so" ]; then
              # An exception for Asus Zenfone 9
 diff --git a/functions3.shlib b/functions3.shlib
-index 9d5c9745ca4095459cdb5af25e11f7854be86fcf..65150456c5b616dd9f3243ce74f24268cb3ea974 100644
+index 9d5c9745ca4095459cdb5af25e11f7854be86fcf..1d85a37 100644
 --- a/functions3.shlib
 +++ b/functions3.shlib
-@@ -248,0 +249,10 @@ function makeConfigFile()
+@@ -249,5 +249,13 @@
+         elif [ -e "/vendor/lib64/hw/audio.bluetooth.default.so" ]; then
+             bltHal="bypass-safer"
+-        elif [ "`getprop ro.bluetooth.a2dp_offload.supported`" = "true" ]; then
 +        elif [ "`getprop ro.bluetooth.a2dp_offload.supported`" = "true" \
 +                    -a "`getprop persist.bluetooth.a2dp_offload.disabled`" != "true" \
 +                    -a "`getprop vendor.audio.feature.a2dp_offload.enable`" = "true" \
@@ -31,4 +34,5 @@ index 9d5c9745ca4095459cdb5af25e11f7854be86fcf..65150456c5b616dd9f3243ce74f24268
 +            # HAL as a fallback. Prefer the active QTI offload path when both
 +            # are present; choosing bypass-safer here leaves LDAC without a
 +            # compatible primary A2DP route on taro devices.
-+            bltHal="offload"
+             bltHal="offload"
+         else

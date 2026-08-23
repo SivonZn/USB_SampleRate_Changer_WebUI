@@ -161,6 +161,8 @@ h3 { margin: 0; font-size: 15px; }
 .period-range { width: 100%; height: 20px; margin: 0; accent-color: var(--accent); cursor: ew-resize; }
 .period-scale { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 9px; }
 .period-scale strong { color: var(--accent); font-size: 10px; font-weight: 750; }
+.parameter-control { gap: 8px; padding: 10px; }
+.parameter-control .field-label { margin: 0; }
 
 .danger-card { border-color: var(--danger); }
 .danger-notice { color: var(--danger); background: var(--danger-container); }
