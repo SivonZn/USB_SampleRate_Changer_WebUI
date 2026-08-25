@@ -1,2 +1,3 @@
 # Applied in order to a temporary copy of the pinned Submodule worktree.
 0001-prefer-qti-bluetooth-offload-on-supported-qualcomm.patch
+0002-report-alsa-endpoint-state-and-role.patch

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::env;
 use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions};
@@ -9,8 +10,27 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const CONTROLLER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const STATE_ROOT: &str = "/data/adb/usb_samplerate_changer_webui";
-const SETTINGS_VERSION: &str = "2";
+const SETTINGS_VERSION: &str = "3";
 const CORE_DIR: &str = "core";
+
+const JITTER_FEATURES: &[&str] = &[
+    "selinux", "thermal", "doze", "governor", "camera", "logd", "io", "vm", "wifi", "battery",
+    "effect",
+];
+const JITTER_BASE_FEATURES: &[&str] = &[
+    "selinux", "thermal", "doze", "governor", "camera", "logd", "io", "vm", "wifi",
+];
+const IO_SCHEDULERS: &[&str] = &[
+    "*",
+    "none",
+    "noop",
+    "deadline",
+    "mq-deadline",
+    "cfq",
+    "bfq",
+    "kyber",
+];
+const IO_TONES: &[&str] = &["light", "m-light", "medium", "boost", "exp"];
 
 const POLICIES: &[(&str, &str, &str)] = &[
     ("auto", "--auto", "自动检测"),
@@ -86,6 +106,71 @@ impl Default for Settings {
             test_template: None,
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct StoredSettings {
+    policy: Settings,
+    policy_configured: bool,
+    bluetooth_hal: String,
+    bluetooth_hal_configured: bool,
+    resampler_preset: String,
+    resampler_configured: bool,
+    resampler_bypass: String,
+    resampler_cheat: bool,
+    resampler_stop_band: u32,
+    resampler_half_length: u32,
+    resampler_percent: u32,
+    usb_period: u32,
+    usb_period_configured: bool,
+    diagnostic: String,
+    diagnostic_all: bool,
+    jitter_values: BTreeMap<String, bool>,
+    jitter_configured: BTreeMap<String, bool>,
+    io_scheduler: String,
+    io_tone: String,
+    wifi_no_restart: bool,
+    auto_reapply: bool,
+}
+
+impl Default for StoredSettings {
+    fn default() -> Self {
+        Self {
+            policy: Settings::default(),
+            policy_configured: false,
+            bluetooth_hal: "offload".to_string(),
+            bluetooth_hal_configured: false,
+            resampler_preset: "179-408-99".to_string(),
+            resampler_configured: false,
+            resampler_bypass: "none".to_string(),
+            resampler_cheat: true,
+            resampler_stop_band: 179,
+            resampler_half_length: 408,
+            resampler_percent: 99,
+            usb_period: 2_250,
+            usb_period_configured: false,
+            diagnostic: "audio".to_string(),
+            diagnostic_all: false,
+            jitter_values: JITTER_FEATURES
+                .iter()
+                .map(|feature| ((*feature).to_string(), false))
+                .collect(),
+            jitter_configured: JITTER_FEATURES
+                .iter()
+                .map(|feature| ((*feature).to_string(), false))
+                .collect(),
+            io_scheduler: "*".to_string(),
+            io_tone: "medium".to_string(),
+            wifi_no_restart: false,
+            auto_reapply: false,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ReapplyAction {
+    Policy(Settings),
+    Extra(Vec<String>),
 }
 
 #[derive(Clone, Debug)]
@@ -198,8 +283,10 @@ fn run() -> Result<i32, String> {
         }
         Some("reset") if args.len() == 2 => run_operation(Settings::default(), Action::Reset),
         Some("extra") => run_extra(&args[2..]),
+        Some("settings") => run_settings_command(&args[2..]),
+        Some("reapply") if args.len() == 2 => run_reapply(),
         _ => Err(format!(
-            "usage: {} {{schema|status|logs|generated|preview OPTIONS|apply OPTIONS|reset|extra TOOL ACTION}}",
+            "usage: {} {{schema|status|logs|generated|preview OPTIONS|apply OPTIONS|reset|extra TOOL ACTION|settings auto-reapply enable|disable|reapply}}",
             args.first().map(String::as_str).unwrap_or("usbsrctl")
         )),
     }
@@ -233,7 +320,10 @@ const RESAMPLER_PRESETS: &[(&str, &[&str])] = &[
 fn run_extra(args: &[String]) -> Result<i32, String> {
     let command = parse_extra_command(args)?;
     let module_dir = module_dir()?;
-    let script_path = module_dir.join(CORE_DIR).join("extras").join(command.script);
+    let script_path = module_dir
+        .join(CORE_DIR)
+        .join("extras")
+        .join(command.script);
     if !script_path.is_file() {
         return Err(format!(
             "extras script not found: {}",
@@ -268,6 +358,9 @@ fn run_extra(args: &[String]) -> Result<i32, String> {
                 );
             }
         }
+    }
+    if upstream_code == 0 {
+        persist_extra_settings(args)?;
     }
     let label = format!("extra-{}", command.tool);
     write_named_operation_log(&label, route, code, &generated_path, &output)?;
@@ -416,18 +509,7 @@ fn parse_jitter_command(args: &[String]) -> Result<ExtraCommand, String> {
     if feature == "io" && enable {
         let scheduler = args.get(3).map(String::as_str).unwrap_or("*");
         let tone = args.get(4).map(String::as_str).unwrap_or("medium");
-        const SCHEDULERS: &[&str] = &[
-            "*",
-            "none",
-            "noop",
-            "deadline",
-            "mq-deadline",
-            "cfq",
-            "bfq",
-            "kyber",
-        ];
-        const TONES: &[&str] = &["light", "m-light", "medium", "boost", "exp"];
-        if !SCHEDULERS.contains(&scheduler) || !TONES.contains(&tone) || args.len() > 5 {
+        if !IO_SCHEDULERS.contains(&scheduler) || !IO_TONES.contains(&tone) || args.len() > 5 {
             return Err("unsupported I/O scheduler or tone".to_string());
         }
         mapped.push(scheduler.to_string());
@@ -785,14 +867,8 @@ fn run_operation(settings: Settings, action: Action) -> Result<i32, String> {
     write_operation_log(action, route, code, &generated_path, &output)?;
     if upstream_code == 0 {
         match action {
-            Action::Apply => save_settings(&settings)?,
-            Action::Reset => {
-                let settings_path = state_root().join("settings.conf");
-                if settings_path.exists() {
-                    fs::remove_file(&settings_path)
-                        .map_err(|error| format!("cannot clear saved settings: {error}"))?;
-                }
-            }
+            Action::Apply => save_policy_settings(&settings)?,
+            Action::Reset => reset_policy_settings()?,
         }
     }
 
@@ -959,56 +1035,415 @@ fn atomic_write(path: &Path, content: &[u8], mode: u32) -> Result<(), String> {
     })
 }
 
-fn save_settings(settings: &Settings) -> Result<(), String> {
-    let content = format!(
-        "version={SETTINGS_VERSION}\npolicy={}\nsample_rate={}\nbit_depth={}\ndrc={}\nforce_usbv2={}\nforce_bluetooth_qti={}\namzm={}\ntest={}\ntest_template={}\n",
-        settings.policy,
-        settings.sample_rate,
-        settings.bit_depth,
-        bool_number(settings.drc),
-        bool_number(settings.force_usbv2),
-        bool_number(settings.force_bluetooth_qti),
-        bool_number(settings.amzm),
-        bool_number(settings.test),
-        settings.test_template.as_deref().unwrap_or("")
+fn render_stored_settings(settings: &StoredSettings) -> String {
+    let mut content = format!(
+        concat!(
+            "version={}\n",
+            "policy_configured={}\npolicy={}\nsample_rate={}\nbit_depth={}\n",
+            "drc={}\nforce_usbv2={}\nforce_bluetooth_qti={}\namzm={}\ntest={}\ntest_template={}\n",
+            "bluetooth_hal_configured={}\nbluetooth_hal={}\n",
+            "resampler_configured={}\nresampler_preset={}\nresampler_bypass={}\n",
+            "resampler_cheat={}\nresampler_stop_band={}\nresampler_half_length={}\nresampler_percent={}\n",
+            "usb_period_configured={}\nusb_period={}\n",
+            "diagnostic={}\ndiagnostic_all={}\n",
+            "io_scheduler={}\nio_tone={}\nwifi_no_restart={}\nauto_reapply={}\n"
+        ),
+        SETTINGS_VERSION,
+        bool_number(settings.policy_configured),
+        settings.policy.policy,
+        settings.policy.sample_rate,
+        settings.policy.bit_depth,
+        bool_number(settings.policy.drc),
+        bool_number(settings.policy.force_usbv2),
+        bool_number(settings.policy.force_bluetooth_qti),
+        bool_number(settings.policy.amzm),
+        bool_number(settings.policy.test),
+        settings.policy.test_template.as_deref().unwrap_or(""),
+        bool_number(settings.bluetooth_hal_configured),
+        settings.bluetooth_hal,
+        bool_number(settings.resampler_configured),
+        settings.resampler_preset,
+        settings.resampler_bypass,
+        bool_number(settings.resampler_cheat),
+        settings.resampler_stop_band,
+        settings.resampler_half_length,
+        settings.resampler_percent,
+        bool_number(settings.usb_period_configured),
+        settings.usb_period,
+        settings.diagnostic,
+        bool_number(settings.diagnostic_all),
+        settings.io_scheduler,
+        settings.io_tone,
+        bool_number(settings.wifi_no_restart),
+        bool_number(settings.auto_reapply),
     );
-    atomic_write(
-        &state_root().join("settings.conf"),
-        content.as_bytes(),
-        0o600,
-    )
+    for feature in JITTER_FEATURES {
+        content.push_str(&format!(
+            "jitter_{feature}={}\njitter_{feature}_configured={}\n",
+            bool_number(
+                settings
+                    .jitter_values
+                    .get(*feature)
+                    .copied()
+                    .unwrap_or(false)
+            ),
+            bool_number(
+                settings
+                    .jitter_configured
+                    .get(*feature)
+                    .copied()
+                    .unwrap_or(false)
+            )
+        ));
+    }
+    content
 }
 
-fn load_settings() -> Settings {
-    let path = state_root().join("settings.conf");
-    let Ok(content) = fs::read_to_string(path) else {
-        return Settings::default();
-    };
-    let mut settings = Settings::default();
+fn parse_stored_settings(content: &str) -> StoredSettings {
+    let mut settings = StoredSettings::default();
+    settings.policy_configured = !content.trim().is_empty()
+        && !content
+            .lines()
+            .any(|line| line.starts_with("policy_configured="));
     for line in content.lines() {
         let Some((key, value)) = line.split_once('=') else {
             continue;
         };
         match key {
-            "policy" => settings.policy = value.to_string(),
+            "policy_configured" => settings.policy_configured = value == "1",
+            "policy" if POLICIES.iter().any(|(name, _, _)| *name == value) => {
+                settings.policy.policy = value.to_string()
+            }
             "sample_rate" => {
                 if let Ok(rate) = normalize_sample_rate(value) {
-                    settings.sample_rate = rate;
+                    settings.policy.sample_rate = rate;
                 }
             }
-            "bit_depth" => settings.bit_depth = value.to_string(),
-            "drc" => settings.drc = value == "1",
-            "force_usbv2" => settings.force_usbv2 = value == "1",
-            "force_bluetooth_qti" => settings.force_bluetooth_qti = value == "1",
-            "amzm" => settings.amzm = value == "1",
-            "test" => settings.test = value == "1",
-            "test_template" if !value.is_empty() => {
-                settings.test_template = Some(value.to_string())
+            "bit_depth" if BIT_DEPTHS.iter().any(|(depth, _)| *depth == value) => {
+                settings.policy.bit_depth = value.to_string()
             }
+            "drc" => settings.policy.drc = value == "1",
+            "force_usbv2" => settings.policy.force_usbv2 = value == "1",
+            "force_bluetooth_qti" => settings.policy.force_bluetooth_qti = value == "1",
+            "amzm" => settings.policy.amzm = value == "1",
+            "test" => settings.policy.test = value == "1",
+            "test_template" if !value.is_empty() => {
+                settings.policy.test_template = Some(value.to_string())
+            }
+            "bluetooth_hal_configured" => settings.bluetooth_hal_configured = value == "1",
+            "bluetooth_hal" if matches!(value, "aosp" | "legacy" | "offload" | "sysbta") => {
+                settings.bluetooth_hal = value.to_string()
+            }
+            "resampler_configured" => settings.resampler_configured = value == "1",
+            "resampler_preset"
+                if value == "custom"
+                    || RESAMPLER_PRESETS.iter().any(|(name, _)| *name == value) =>
+            {
+                settings.resampler_preset = value.to_string()
+            }
+            "resampler_bypass" if matches!(value, "none" | "48" | "96") => {
+                settings.resampler_bypass = value.to_string()
+            }
+            "resampler_cheat" => settings.resampler_cheat = value == "1",
+            "resampler_stop_band" => {
+                if let Ok(value) = value.parse::<u32>() {
+                    if (20..=242).contains(&value) {
+                        settings.resampler_stop_band = value;
+                    }
+                }
+            }
+            "resampler_half_length" => {
+                if let Ok(value) = value.parse::<u32>() {
+                    if (8..=640).contains(&value) && value % 8 == 0 {
+                        settings.resampler_half_length = value;
+                    }
+                }
+            }
+            "resampler_percent" => {
+                if let Ok(value) = value.parse::<u32>() {
+                    if (1..=200).contains(&value) {
+                        settings.resampler_percent = value;
+                    }
+                }
+            }
+            "usb_period_configured" => settings.usb_period_configured = value == "1",
+            "usb_period" => {
+                if let Ok(value) = value.parse::<u32>() {
+                    if (125..=50_000).contains(&value) && value % 125 == 0 {
+                        settings.usb_period = value;
+                    }
+                }
+            }
+            "diagnostic" if matches!(value, "audio" | "bluetooth" | "config" | "alsa") => {
+                settings.diagnostic = value.to_string()
+            }
+            "diagnostic_all" => settings.diagnostic_all = value == "1",
+            "io_scheduler" if IO_SCHEDULERS.contains(&value) => {
+                settings.io_scheduler = value.to_string()
+            }
+            "io_tone" if IO_TONES.contains(&value) => settings.io_tone = value.to_string(),
+            "wifi_no_restart" => settings.wifi_no_restart = value == "1",
+            "auto_reapply" => settings.auto_reapply = value == "1",
             _ => {}
         }
+        if let Some(feature) = key
+            .strip_prefix("jitter_")
+            .and_then(|key| key.strip_suffix("_configured"))
+            .filter(|feature| JITTER_FEATURES.contains(feature))
+        {
+            settings
+                .jitter_configured
+                .insert(feature.to_string(), value == "1");
+        } else if let Some(feature) = key
+            .strip_prefix("jitter_")
+            .filter(|feature| JITTER_FEATURES.contains(feature))
+        {
+            settings
+                .jitter_values
+                .insert(feature.to_string(), value == "1");
+        }
+    }
+    if !settings.resampler_cheat && settings.resampler_percent > 100 {
+        settings.resampler_percent = 100;
     }
     settings
+}
+
+fn load_stored_settings() -> StoredSettings {
+    fs::read_to_string(state_root().join("settings.conf"))
+        .map(|content| parse_stored_settings(&content))
+        .unwrap_or_default()
+}
+
+fn save_stored_settings(settings: &StoredSettings) -> Result<(), String> {
+    atomic_write(
+        &state_root().join("settings.conf"),
+        render_stored_settings(settings).as_bytes(),
+        0o600,
+    )
+}
+
+fn save_policy_settings(policy: &Settings) -> Result<(), String> {
+    let mut settings = load_stored_settings();
+    settings.policy = policy.clone();
+    settings.policy_configured = true;
+    save_stored_settings(&settings)
+}
+
+fn reset_policy_settings() -> Result<(), String> {
+    let mut settings = load_stored_settings();
+    settings.policy = Settings::default();
+    settings.policy_configured = false;
+    save_stored_settings(&settings)
+}
+
+fn persist_extra_settings(args: &[String]) -> Result<(), String> {
+    let mut settings = load_stored_settings();
+    if update_stored_settings_for_extra(&mut settings, args) {
+        save_stored_settings(&settings)?;
+    }
+    Ok(())
+}
+
+fn update_stored_settings_for_extra(settings: &mut StoredSettings, args: &[String]) -> bool {
+    let Some(tool) = args.first().map(String::as_str) else {
+        return false;
+    };
+    match tool {
+        "bluetooth-hal" => match args.get(1).map(String::as_str) {
+            Some("status") | None => false,
+            Some(value) => {
+                settings.bluetooth_hal = value.to_string();
+                settings.bluetooth_hal_configured = true;
+                true
+            }
+        },
+        "resampler" => match args.get(1).map(String::as_str) {
+            Some("status") | None => false,
+            Some("reset") => {
+                let defaults = StoredSettings::default();
+                settings.resampler_preset = defaults.resampler_preset;
+                settings.resampler_bypass = defaults.resampler_bypass;
+                settings.resampler_cheat = defaults.resampler_cheat;
+                settings.resampler_stop_band = defaults.resampler_stop_band;
+                settings.resampler_half_length = defaults.resampler_half_length;
+                settings.resampler_percent = defaults.resampler_percent;
+                settings.resampler_configured = false;
+                true
+            }
+            Some("custom") => {
+                settings.resampler_preset = "custom".to_string();
+                settings.resampler_bypass = args[2].clone();
+                settings.resampler_cheat = args[3] == "cheat";
+                settings.resampler_stop_band = args[4].parse().unwrap_or(179);
+                settings.resampler_half_length = args[5].parse().unwrap_or(408);
+                settings.resampler_percent = args[6].parse().unwrap_or(99);
+                settings.resampler_configured = true;
+                true
+            }
+            Some(preset) => {
+                settings.resampler_preset = preset.to_string();
+                settings.resampler_configured = true;
+                true
+            }
+        },
+        "usb-period" => match args.get(1).map(String::as_str) {
+            Some("status") | None => false,
+            Some("reset") => {
+                settings.usb_period = StoredSettings::default().usb_period;
+                settings.usb_period_configured = false;
+                true
+            }
+            Some(period) => {
+                settings.usb_period = period.parse().unwrap_or(2_250);
+                settings.usb_period_configured = true;
+                true
+            }
+        },
+        "jitter" => {
+            if args.get(1).map(String::as_str) == Some("status") {
+                return false;
+            }
+            let enabled = args.get(1).map(String::as_str) == Some("enable");
+            let Some(feature) = args.get(2).map(String::as_str) else {
+                return false;
+            };
+            if feature == "all" {
+                for feature in JITTER_BASE_FEATURES {
+                    settings
+                        .jitter_values
+                        .insert((*feature).to_string(), enabled);
+                    settings
+                        .jitter_configured
+                        .insert((*feature).to_string(), enabled);
+                }
+                return true;
+            }
+            settings.jitter_values.insert(feature.to_string(), enabled);
+            settings.jitter_configured.insert(feature.to_string(), true);
+            if feature == "io" && enabled {
+                settings.io_scheduler = args.get(3).cloned().unwrap_or_else(|| "*".to_string());
+                settings.io_tone = args.get(4).cloned().unwrap_or_else(|| "medium".to_string());
+            }
+            if feature == "wifi" {
+                settings.wifi_no_restart =
+                    enabled && args.get(3).map(String::as_str) == Some("no-restart");
+            }
+            true
+        }
+        "diagnose" => {
+            settings.diagnostic = args[1].clone();
+            settings.diagnostic_all = args.get(2).map(String::as_str) == Some("all");
+            true
+        }
+        _ => false,
+    }
+}
+
+fn run_settings_command(args: &[String]) -> Result<i32, String> {
+    if args.len() != 2 || args[0] != "auto-reapply" {
+        return Err("settings usage: settings auto-reapply enable|disable".to_string());
+    }
+    let enabled = match args[1].as_str() {
+        "enable" => true,
+        "disable" => false,
+        _ => return Err("auto-reapply must be enable or disable".to_string()),
+    };
+    ensure_state_layout()?;
+    let mut settings = load_stored_settings();
+    settings.auto_reapply = enabled;
+    save_stored_settings(&settings)?;
+    println!("auto_reapply={}", bool_number(enabled));
+    Ok(0)
+}
+
+fn run_reapply() -> Result<i32, String> {
+    let stored = load_stored_settings();
+    if !stored.auto_reapply {
+        println!("auto_reapply=0");
+        return Ok(0);
+    }
+    let plan = build_reapply_plan(&stored);
+    let mut applied = 0;
+    for action in plan {
+        let code = match action {
+            ReapplyAction::Policy(settings) => run_operation(settings, Action::Apply)?,
+            ReapplyAction::Extra(args) => run_extra(&args)?,
+        };
+        if code != 0 {
+            return Ok(code);
+        }
+        applied += 1;
+    }
+    println!("reapplied={applied}");
+    Ok(0)
+}
+
+fn build_reapply_plan(stored: &StoredSettings) -> Vec<ReapplyAction> {
+    if !stored.auto_reapply {
+        return Vec::new();
+    }
+    let mut plan = Vec::new();
+    if stored.bluetooth_hal_configured {
+        plan.push(ReapplyAction::Extra(vec![
+            "bluetooth-hal".to_string(),
+            stored.bluetooth_hal.clone(),
+        ]));
+    }
+    if stored.policy_configured {
+        plan.push(ReapplyAction::Policy(stored.policy.clone()));
+    }
+    if stored.resampler_configured {
+        let args = if stored.resampler_preset == "custom" {
+            vec![
+                "resampler".to_string(),
+                "custom".to_string(),
+                stored.resampler_bypass.clone(),
+                if stored.resampler_cheat {
+                    "cheat"
+                } else {
+                    "cutoff"
+                }
+                .to_string(),
+                stored.resampler_stop_band.to_string(),
+                stored.resampler_half_length.to_string(),
+                stored.resampler_percent.to_string(),
+            ]
+        } else {
+            vec!["resampler".to_string(), stored.resampler_preset.clone()]
+        };
+        plan.push(ReapplyAction::Extra(args));
+    }
+    if stored.usb_period_configured {
+        plan.push(ReapplyAction::Extra(vec![
+            "usb-period".to_string(),
+            stored.usb_period.to_string(),
+        ]));
+    }
+    for feature in JITTER_FEATURES {
+        if !stored
+            .jitter_configured
+            .get(*feature)
+            .copied()
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        let enabled = stored.jitter_values.get(*feature).copied().unwrap_or(false);
+        let mut args = vec![
+            "jitter".to_string(),
+            if enabled { "enable" } else { "disable" }.to_string(),
+            (*feature).to_string(),
+        ];
+        if *feature == "io" && enabled {
+            args.push(stored.io_scheduler.clone());
+            args.push(stored.io_tone.clone());
+        } else if *feature == "wifi" && enabled && stored.wifi_no_restart {
+            args.push("no-restart".to_string());
+        }
+        plan.push(ReapplyAction::Extra(args));
+    }
+    plan
 }
 
 fn bool_number(value: bool) -> u8 {
@@ -1057,12 +1492,14 @@ fn write_named_operation_log(
 }
 
 fn print_status(module_dir: &Path) {
-    let settings = load_settings();
+    let stored = load_stored_settings();
+    let settings = stored.policy.clone();
     let namespace = namespace_info();
     println!("controller_version={CONTROLLER_VERSION}");
     println!("script_version={}", upstream_script_version(module_dir));
     println!("module_dir={}", module_dir.display());
     print_settings(&settings);
+    print_stored_settings(&stored);
     println!(
         "audioserver_pid={}",
         namespace
@@ -1084,6 +1521,61 @@ fn print_status(module_dir: &Path) {
         print!("{last_status}");
     }
     print_templates(module_dir);
+}
+
+fn print_stored_settings(settings: &StoredSettings) {
+    println!(
+        "policy_configured={}",
+        bool_number(settings.policy_configured)
+    );
+    println!("bluetooth_hal={}", settings.bluetooth_hal);
+    println!(
+        "bluetooth_hal_configured={}",
+        bool_number(settings.bluetooth_hal_configured)
+    );
+    println!("resampler_preset={}", settings.resampler_preset);
+    println!(
+        "resampler_configured={}",
+        bool_number(settings.resampler_configured)
+    );
+    println!("resampler_bypass={}", settings.resampler_bypass);
+    println!("resampler_cheat={}", bool_number(settings.resampler_cheat));
+    println!("resampler_stop_band={}", settings.resampler_stop_band);
+    println!("resampler_half_length={}", settings.resampler_half_length);
+    println!("resampler_percent={}", settings.resampler_percent);
+    println!("usb_period={}", settings.usb_period);
+    println!(
+        "usb_period_configured={}",
+        bool_number(settings.usb_period_configured)
+    );
+    println!("diagnostic={}", settings.diagnostic);
+    println!("diagnostic_all={}", bool_number(settings.diagnostic_all));
+    println!("io_scheduler={}", settings.io_scheduler);
+    println!("io_tone={}", settings.io_tone);
+    println!("wifi_no_restart={}", bool_number(settings.wifi_no_restart));
+    println!("auto_reapply={}", bool_number(settings.auto_reapply));
+    for feature in JITTER_FEATURES {
+        println!(
+            "jitter_{feature}={}",
+            bool_number(
+                settings
+                    .jitter_values
+                    .get(*feature)
+                    .copied()
+                    .unwrap_or(false)
+            )
+        );
+        println!(
+            "jitter_{feature}_configured={}",
+            bool_number(
+                settings
+                    .jitter_configured
+                    .get(*feature)
+                    .copied()
+                    .unwrap_or(false)
+            )
+        );
+    }
 }
 
 fn upstream_script_version(module_dir: &Path) -> String {
@@ -1402,6 +1894,199 @@ mod tests {
         assert_eq!(
             parse_extra_command(&wifi).unwrap().args,
             ["--wifi-no-restart", "--status"]
+        );
+    }
+
+    #[test]
+    fn stored_settings_round_trip_all_persisted_values() {
+        let mut settings = StoredSettings::default();
+        settings.policy.policy = "usb".to_string();
+        settings.policy_configured = true;
+        settings.bluetooth_hal = "aosp".to_string();
+        settings.bluetooth_hal_configured = true;
+        settings.resampler_preset = "custom".to_string();
+        settings.resampler_configured = true;
+        settings.resampler_bypass = "96".to_string();
+        settings.resampler_stop_band = 194;
+        settings.resampler_half_length = 520;
+        settings.resampler_percent = 98;
+        settings.usb_period = 1_000;
+        settings.usb_period_configured = true;
+        settings.jitter_values.insert("io".to_string(), true);
+        settings.jitter_configured.insert("io".to_string(), true);
+        settings.io_scheduler = "bfq".to_string();
+        settings.io_tone = "boost".to_string();
+        settings.auto_reapply = true;
+
+        assert_eq!(
+            parse_stored_settings(&render_stored_settings(&settings)),
+            settings
+        );
+    }
+
+    #[test]
+    fn legacy_settings_are_treated_as_an_applied_policy() {
+        let settings =
+            parse_stored_settings("version=2\npolicy=usb\nsample_rate=96000\nbit_depth=24\n");
+        assert!(settings.policy_configured);
+        assert_eq!(settings.policy.policy, "usb");
+        assert_eq!(settings.policy.sample_rate, 96_000);
+        assert_eq!(settings.policy.bit_depth, "24");
+    }
+
+    #[test]
+    fn extra_updates_every_tool_and_tuning_selection() {
+        let mut settings = StoredSettings::default();
+        let policy = settings.policy.clone();
+        let bluetooth = ["bluetooth-hal", "aosp"]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        assert!(update_stored_settings_for_extra(&mut settings, &bluetooth));
+        assert!(settings.bluetooth_hal_configured);
+        assert_eq!(settings.bluetooth_hal, "aosp");
+
+        let custom = ["resampler", "custom", "96", "cheat", "194", "520", "98"]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+
+        assert!(update_stored_settings_for_extra(&mut settings, &custom));
+        assert!(settings.resampler_configured);
+        assert_eq!(settings.resampler_preset, "custom");
+        assert_eq!(settings.resampler_bypass, "96");
+        assert_eq!(settings.resampler_stop_band, 194);
+        assert_eq!(settings.resampler_half_length, 520);
+        assert_eq!(settings.resampler_percent, 98);
+        assert_eq!(settings.policy, policy);
+
+        let usb = ["usb-period", "1000"]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        assert!(update_stored_settings_for_extra(&mut settings, &usb));
+        assert!(settings.usb_period_configured);
+        assert_eq!(settings.usb_period, 1_000);
+
+        let diagnostic = ["diagnose", "alsa", "all"]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        assert!(update_stored_settings_for_extra(&mut settings, &diagnostic));
+        assert_eq!(settings.diagnostic, "alsa");
+        assert!(settings.diagnostic_all);
+
+        let io = ["jitter", "enable", "io", "bfq", "boost"]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        assert!(update_stored_settings_for_extra(&mut settings, &io));
+        assert_eq!(settings.jitter_values.get("io"), Some(&true));
+        assert_eq!(settings.jitter_configured.get("io"), Some(&true));
+        assert_eq!(settings.io_scheduler, "bfq");
+        assert_eq!(settings.io_tone, "boost");
+
+        let wifi = ["jitter", "enable", "wifi", "no-restart"]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        assert!(update_stored_settings_for_extra(&mut settings, &wifi));
+        assert_eq!(settings.jitter_values.get("wifi"), Some(&true));
+        assert!(settings.wifi_no_restart);
+
+        let disable_battery = ["jitter", "disable", "battery"]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        assert!(update_stored_settings_for_extra(
+            &mut settings,
+            &disable_battery
+        ));
+        assert_eq!(settings.jitter_values.get("battery"), Some(&false));
+        assert_eq!(settings.jitter_configured.get("battery"), Some(&true));
+
+        let reset_resampler = ["resampler", "reset"]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        assert!(update_stored_settings_for_extra(
+            &mut settings,
+            &reset_resampler
+        ));
+        assert!(!settings.resampler_configured);
+
+        let reset_usb = ["usb-period", "reset"]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        assert!(update_stored_settings_for_extra(&mut settings, &reset_usb));
+        assert!(!settings.usb_period_configured);
+
+        let reset_jitter = ["jitter", "disable", "all"]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        assert!(update_stored_settings_for_extra(
+            &mut settings,
+            &reset_jitter
+        ));
+        for feature in JITTER_BASE_FEATURES {
+            assert_eq!(settings.jitter_values.get(*feature), Some(&false));
+            assert_eq!(settings.jitter_configured.get(*feature), Some(&false));
+        }
+    }
+
+    #[test]
+    fn reapply_plan_replays_only_applied_values_in_dependency_order() {
+        let mut settings = StoredSettings::default();
+        settings.bluetooth_hal = "aosp".to_string();
+        settings.bluetooth_hal_configured = true;
+        settings.policy.policy = "usb".to_string();
+        settings.policy_configured = true;
+        settings.resampler_preset = "custom".to_string();
+        settings.resampler_configured = true;
+        settings.resampler_bypass = "96".to_string();
+        settings.resampler_stop_band = 194;
+        settings.resampler_half_length = 520;
+        settings.resampler_percent = 98;
+        settings.usb_period = 1_000;
+        settings.usb_period_configured = true;
+        settings.jitter_values.insert("thermal".to_string(), false);
+        settings
+            .jitter_configured
+            .insert("thermal".to_string(), true);
+        settings.jitter_values.insert("io".to_string(), true);
+        settings.jitter_configured.insert("io".to_string(), true);
+        settings.io_scheduler = "bfq".to_string();
+        settings.io_tone = "boost".to_string();
+        settings.diagnostic = "alsa".to_string();
+
+        assert!(build_reapply_plan(&settings).is_empty());
+        settings.auto_reapply = true;
+        assert_eq!(
+            build_reapply_plan(&settings),
+            vec![
+                ReapplyAction::Extra(vec!["bluetooth-hal".into(), "aosp".into()]),
+                ReapplyAction::Policy(settings.policy.clone()),
+                ReapplyAction::Extra(vec![
+                    "resampler".into(),
+                    "custom".into(),
+                    "96".into(),
+                    "cheat".into(),
+                    "194".into(),
+                    "520".into(),
+                    "98".into(),
+                ]),
+                ReapplyAction::Extra(vec!["usb-period".into(), "1000".into()]),
+                ReapplyAction::Extra(vec!["jitter".into(), "disable".into(), "thermal".into(),]),
+                ReapplyAction::Extra(vec![
+                    "jitter".into(),
+                    "enable".into(),
+                    "io".into(),
+                    "bfq".into(),
+                    "boost".into(),
+                ]),
+            ]
         );
     }
 }

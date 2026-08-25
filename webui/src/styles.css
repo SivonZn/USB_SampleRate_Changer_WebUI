@@ -173,8 +173,8 @@ h3 { margin: 0; font-size: 15px; }
 
 .diagnostic-output { min-height: 150px; max-height: 330px; overflow: auto; margin: 4px 0 0; padding: 12px; border: 1px solid var(--border); border-radius: 13px; background: var(--surface-lowest); color: var(--muted); font: 10px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; }
 
-#toast-container { position: fixed; right: 20px; bottom: calc(78px + var(--bottom-inset)); z-index: 40; display: grid; width: min(360px, calc(100vw - 40px)); gap: 9px; pointer-events: none; }
-.toast { padding: 12px 14px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface-3); box-shadow: 0 14px 35px #00000055; color: var(--text); font-size: 12px; line-height: 1.4; pointer-events: auto; animation: toast-in .18s ease-out; }
+#toast-container { position: fixed; right: max(12px, env(safe-area-inset-right, 0px)); bottom: calc(78px + var(--bottom-inset)); left: max(12px, env(safe-area-inset-left, 0px)); z-index: 40; display: grid; width: auto; max-width: 360px; min-width: 0; margin-left: auto; gap: 9px; pointer-events: none; }
+.toast { min-width: 0; overflow-wrap: anywhere; padding: 12px 14px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface-3); box-shadow: 0 14px 35px #00000055; color: var(--text); font-size: 12px; line-height: 1.4; white-space: pre-wrap; word-break: break-word; pointer-events: auto; animation: toast-in .18s ease-out; }
 .toast.success { border-color: #56d39a66; color: var(--success); }
 .toast.error { border-color: color-mix(in srgb, var(--danger) 45%, transparent); color: var(--danger); }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
@@ -182,11 +182,12 @@ h3 { margin: 0; font-size: 15px; }
 .dialog-layer { position: fixed; z-index: 20; inset: 0; display: grid; place-items: center; padding: 18px; }
 .dialog-backdrop { position: absolute; inset: 0; width: 100%; border: 0; background: #000a; backdrop-filter: blur(5px); animation: fade-in 180ms ease-out; }
 .confirm-layer { z-index: 60; }
-.confirm-dialog { position: relative; display: grid; width: min(430px, 100%); gap: 15px; padding: 20px; border: 1px solid color-mix(in srgb, var(--danger) 55%, var(--border)); border-radius: 22px; background: var(--surface); box-shadow: 0 28px 90px #0009; animation: dialog-in 220ms cubic-bezier(.2, .9, .2, 1); }
+.confirm-dialog { position: relative; display: grid; width: min(430px, 100%); max-height: calc(100dvh - 24px); min-width: 0; overflow-y: auto; gap: 15px; padding: 20px; border: 1px solid color-mix(in srgb, var(--danger) 55%, var(--border)); border-radius: 22px; background: var(--surface); box-shadow: 0 28px 90px #0009; animation: dialog-in 220ms cubic-bezier(.2, .9, .2, 1); }
+.confirm-dialog > * { min-width: 0; }
 .confirm-mark { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 14px; background: var(--danger-container); color: var(--danger); }
 .confirm-mark svg { width: 23px; height: 23px; }
 .confirm-dialog h2 { margin-bottom: 8px; }
-.confirm-dialog p:last-child { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.confirm-dialog p:last-child { margin: 0; overflow-wrap: anywhere; color: var(--muted); font-size: 12px; line-height: 1.6; word-break: break-word; }
 .confirm-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .confirm-actions.single { grid-template-columns: 1fr; }
 .log-dialog { position: relative; display: flex; width: min(760px, 100%); max-height: min(76vh, 680px); flex-direction: column; padding: 18px; border: 1px solid var(--border); border-radius: 24px; background: var(--surface); box-shadow: 0 28px 90px #0009; animation: dialog-in 240ms cubic-bezier(.2, .9, .2, 1); }

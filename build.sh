@@ -119,7 +119,8 @@ done
 
 sed "s/^version=.*/version=$MODULE_VERSION/" "$ROOT_DIR/module/module.prop" > "$STAGING_DIR/module.prop"
 cp "$ROOT_DIR/module/customize.sh" \
-    "$ROOT_DIR/module/uninstall.sh" "$ROOT_DIR/module/skip_mount" "$STAGING_DIR/"
+    "$ROOT_DIR/module/uninstall.sh" "$ROOT_DIR/module/service.sh" \
+    "$ROOT_DIR/module/skip_mount" "$STAGING_DIR/"
 
 (cd "$ROOT_DIR/webui" && npm ci && WEBUI_OUT_DIR="$STAGING_DIR/webroot" npm run build)
 
@@ -148,7 +149,7 @@ CARGO_TARGET_DIR="$BUILD_DIR/cargo-target" \
     cargo build --locked --manifest-path "$ROOT_DIR/backend/Cargo.toml" --release --target "$TARGET"
 cp "$BUILD_DIR/cargo-target/$TARGET/release/usbsrctl" "$STAGING_DIR/usbsrctl"
 
-chmod 0755 "$STAGING_DIR/customize.sh" "$STAGING_DIR/uninstall.sh" \
+chmod 0755 "$STAGING_DIR/customize.sh" "$STAGING_DIR/uninstall.sh" "$STAGING_DIR/service.sh" \
     "$STAGING_DIR/usbsrctl"
 chmod 0755 "$STAGING_DIR/core/USB_SampleRate_Changer.sh"
 chmod 0644 "$STAGING_DIR/core/functions3.shlib"

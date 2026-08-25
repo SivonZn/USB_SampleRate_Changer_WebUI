@@ -172,6 +172,7 @@ const jitterFeatures = [
 
 type JitterFeature = typeof jitterFeatures[number][0];
 type JitterValues = Record<JitterFeature, boolean>;
+type RefreshScope = "all" | "policy" | "tools" | "tuning";
 
 const defaultJitterValues = (): JitterValues => Object.fromEntries(
   jitterFeatures.map(([key]) => [key, false])
@@ -210,6 +211,25 @@ type Status = {
   last_exit?: string;
   last_time?: string;
   templates?: string[];
+  policy_configured?: string;
+  bluetooth_hal?: string;
+  bluetooth_hal_configured?: string;
+  resampler_preset?: string;
+  resampler_configured?: string;
+  resampler_bypass?: string;
+  resampler_cheat?: string;
+  resampler_stop_band?: string;
+  resampler_half_length?: string;
+  resampler_percent?: string;
+  usb_period?: string;
+  usb_period_configured?: string;
+  diagnostic?: string;
+  diagnostic_all?: string;
+  io_scheduler?: string;
+  io_tone?: string;
+  wifi_no_restart?: string;
+  auto_reapply?: string;
+  [key: `jitter_${string}`]: string | string[] | undefined;
 };
 
 const defaultSettings = (): Settings => ({
@@ -443,6 +463,7 @@ function App() {
   const [ioScheduler, setIoScheduler] = createSignal("*");
   const [ioTone, setIoTone] = createSignal("medium");
   const [wifiNoRestart, setWifiNoRestart] = createSignal(false);
+  const [autoReapply, setAutoReapply] = createSignal(false);
   const [activePage, setActivePage] = createSignal<PageId>("policy");
   const [pageProgress, setPageProgress] = createSignal(0);
   const [pageDragging, setPageDragging] = createSignal(false);
@@ -563,14 +584,37 @@ function App() {
     setSettings((current) => ({ ...current, [key]: value }));
   };
 
-  async function refresh(showSuccess = true, manageBusy = true): Promise<boolean> {
+  async function refresh(showSuccess = true, manageBusy = true, scope: RefreshScope = "all"): Promise<boolean> {
     if (manageBusy) setBusy(true);
     try {
       const result = await rootExec(`${CONTROLLER} status`);
       if (result.code !== 0) throw new Error(result.stderr || result.stdout || tx("读取状态失败"));
       const parsed = parseStatus(result.stdout);
       setStatus(parsed);
-      setSettings(initialFromStatus(parsed));
+      if (scope === "all" || scope === "policy") setSettings(initialFromStatus(parsed));
+      if (scope === "all" || scope === "tools") {
+        if (parsed.bluetooth_hal) setBluetoothHal(parsed.bluetooth_hal);
+        if (parsed.resampler_preset) setResamplerPreset(parsed.resampler_preset);
+        if (parsed.resampler_bypass) setResamplerBypass(parsed.resampler_bypass);
+        if (parsed.resampler_cheat) setResamplerCheat(parsed.resampler_cheat === "1");
+        if (parsed.resampler_stop_band) setResamplerStopBand(parsed.resampler_stop_band);
+        if (parsed.resampler_half_length) setResamplerHalfLength(parsed.resampler_half_length);
+        if (parsed.resampler_percent) setResamplerPercent(parsed.resampler_percent);
+        if (parsed.usb_period) setUsbPeriod(normalizeUsbPeriod(parsed.usb_period));
+        if (parsed.diagnostic) setDiagnostic(parsed.diagnostic);
+        if (parsed.diagnostic_all) setDiagnosticAll(parsed.diagnostic_all === "1");
+      }
+      if (scope === "all" || scope === "tuning") {
+        if (parsed.io_scheduler) setIoScheduler(parsed.io_scheduler);
+        if (parsed.io_tone) setIoTone(parsed.io_tone);
+        if (parsed.wifi_no_restart) setWifiNoRestart(parsed.wifi_no_restart === "1");
+        setJitterValues(Object.fromEntries(jitterFeatures.map(([feature]) => [
+          feature,
+          parsed[`jitter_${feature}`] === "1"
+        ])) as JitterValues);
+        setJitterDirty([]);
+      }
+      setAutoReapply(parsed.auto_reapply === "1");
       if (showSuccess) showToast(tx("状态已更新"));
       return true;
     } catch (error) {
@@ -626,11 +670,11 @@ function App() {
       setLog(text || `exit=${result.code}`);
       if (result.code === 72) {
         await handleA2dpFailure("音频策略");
-        await refresh(false, false);
+        await refresh(false, false, "policy");
         return;
       }
       if (result.code !== 0) throw new Error(text || `应用失败，退出码 ${result.code}`);
-      const refreshed = await refresh(false, false);
+      const refreshed = await refresh(false, false, "policy");
       if (refreshed) showToast(result.stdout.includes("bluetooth_a2dp_before=1") ? tx("配置已应用，A2DP 路由正常") : tx("配置已应用"));
     } catch (error) {
       showToast(String(error), "error");
@@ -648,11 +692,11 @@ function App() {
       setLog(text || `exit=${result.code}`);
       if (result.code === 72) {
         await handleA2dpFailure("重置");
-        await refresh(false, false);
+        await refresh(false, false, "policy");
         return;
       }
       if (result.code !== 0) throw new Error(text || `重置失败，退出码 ${result.code}`);
-      const refreshed = await refresh(false, false);
+      const refreshed = await refresh(false, false, "policy");
       if (refreshed) showToast(tx("已重置"));
     } catch (error) {
       showToast(String(error), "error");
@@ -674,6 +718,7 @@ function App() {
       }
       if (result.code !== 0) throw new Error(text || `执行失败，退出码 ${result.code}`);
       showToast(tx(success));
+      await refresh(false, false, args[0] === "jitter" ? "tuning" : "tools");
     } catch (error) {
       showToast(String(error), "error");
     } finally {
@@ -746,6 +791,29 @@ function App() {
     window.localStorage.setItem("usbSrLanguage", nextLanguage);
   }
 
+  async function applyAutoReapply(value: boolean) {
+    setBusy(true);
+    try {
+      const result = await rootExec(`${CONTROLLER} settings auto-reapply ${value ? "enable" : "disable"}`);
+      if (result.code !== 0) throw new Error(result.stderr || result.stdout || tx("实验选项保存失败"));
+      setAutoReapply(value);
+      showToast(tx(value ? "启动自动应用已启用" : "启动自动应用已停用"));
+    } catch (error) {
+      showToast(String(error), "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function changeAutoReapply(value: boolean) {
+    if (value && !await confirmWebUi(
+      "启用启动自动应用",
+      "系统启动完成后将重新应用已保存的策略、工具和调优设置，其中可能包含允许 SELinux Permissive、停用温控等高风险选项。请确认已了解风险。",
+      "确认启用"
+    )) return;
+    await applyAutoReapply(value);
+  }
+
   async function runDiagnostic() {
     setBusy(true);
     setDiagnosticOutput(tx("正在读取设备诊断信息…"));
@@ -797,10 +865,11 @@ function App() {
         const result = await rootExec(`${CONTROLLER} extra ${args.map(shellQuote).join(" ")}`);
         outputs.push(`[${feature}]\n${result.stdout}${result.stderr}`.trim());
         if (result.code !== 0) throw new Error(`${feature} 执行失败，退出码 ${result.code}`);
+        setJitterDirty((current) => current.filter((item) => item !== feature));
       }
       setLog(outputs.join("\n\n"));
-      setJitterDirty([]);
       showToast(tx("Jitter reducer 设置已应用"));
+      await refresh(false, false, "tuning");
     } catch (error) {
       setLog(outputs.join("\n\n"));
       showToast(String(error), "error");
@@ -970,8 +1039,8 @@ function App() {
                 <section class="card section-card danger-card">
                   <div class="notice danger-notice"><WarningIcon /><span><strong>{tx("风险提示：")}</strong>{tx("这些选项可能修改 SELinux、温控、系统服务、调度器和内核参数，可能降低系统安全性、稳定性或导致设备过热。请仅启用已了解影响的项目；SELinux 与温控选项应用时会再次确认。")}</span></div>
                   <div class="switch-grid jitter-grid"><For each={jitterFeatures}>{(feature) => <ToggleRow label={`${tx(feature[1])}${jitterDirty().includes(feature[0]) ? tx(" · 待应用") : ""}`} description={tx(feature[2])} checked={jitterValues()[feature[0]]} onChange={(value) => updateJitter(feature[0], value)} />}</For></div>
-                  <Show when={jitterValues().io && jitterDirty().includes("io")}><div class="grid two-col io-options"><div><label class="field-label">I/O scheduler</label><SelectField title={tx("选择 I/O scheduler")} value={ioScheduler()} options={localizeOptions(ioSchedulerOptions)} language={language()} onChange={(value) => setIoScheduler(value)} /></div><div><label class="field-label">{tx("声音倾向")}</label><SelectField title={tx("选择声音倾向")} value={ioTone()} options={ioToneOptions} language={language()} onChange={(value) => setIoTone(value)} /></div></div></Show>
-                  <Show when={jitterValues().wifi && jitterDirty().includes("wifi")}><div class="wifi-option"><ToggleRow label={tx("切换时不重启 Wi-Fi")} description={tx("使用 upstream 的 no-restart 模式。")} checked={wifiNoRestart()} onChange={setWifiNoRestart} /></div></Show>
+                  <Show when={jitterValues().io}><div class="grid two-col io-options"><div><label class="field-label">I/O scheduler</label><SelectField title={tx("选择 I/O scheduler")} value={ioScheduler()} options={localizeOptions(ioSchedulerOptions)} language={language()} onChange={(value) => { setIoScheduler(value); setJitterDirty((current) => current.includes("io") ? current : [...current, "io"]); }} /></div><div><label class="field-label">{tx("声音倾向")}</label><SelectField title={tx("选择声音倾向")} value={ioTone()} options={ioToneOptions} language={language()} onChange={(value) => { setIoTone(value); setJitterDirty((current) => current.includes("io") ? current : [...current, "io"]); }} /></div></div></Show>
+                  <Show when={jitterValues().wifi}><div class="wifi-option"><ToggleRow label={tx("切换时不重启 Wi-Fi")} description={tx("使用 upstream 的 no-restart 模式。")} checked={wifiNoRestart()} onChange={(value) => { setWifiNoRestart(value); setJitterDirty((current) => current.includes("wifi") ? current : [...current, "wifi"]); }} /></div></Show>
                   <div class="inline-actions right tuning-actions"><button class="secondary-button" disabled={busy()} onClick={() => openConfirm({ title: "重置 Jitter 基础项", message: "将恢复 SELinux、温控、Doze、调频、相机、日志、I/O、虚拟内存和 Wi-Fi 的基础设置。", confirmLabel: "确认重置", action: () => void runExtra(["jitter", "disable", "all"], "正在重置全部基础 jitter 项…", "Jitter 基础项已重置") })}>{tx("重置")}</button><button class="primary-button" disabled={busy() || !jitterDirty().length} onClick={applyJitter}>{tx("应用")}</button></div>
                 </section>
 
@@ -985,6 +1054,16 @@ function App() {
                   <SectionHeading title={tx("语言")} />
                   <p class="field-help">{tx("选择 WebUI 显示语言。")}</p>
                   <div class="language-setting"><SelectField title={tx("选择界面语言")} value={pendingLanguage()} options={localizeOptions(languageOptions)} language={language()} onChange={(value) => setPendingLanguage(value as Language)} /><button type="button" class="primary-button" onClick={applyLanguage}>{tx("应用")}</button></div>
+                </section>
+
+                <section class="card section-card">
+                  <SectionHeading title={tx("实验选项")} />
+                  <ToggleRow
+                    label={tx("启动时自动重新应用")}
+                    description={tx("系统启动完成后重新应用已保存的策略、工具和调优设置。此功能仍处于实验阶段。")}
+                    checked={autoReapply()}
+                    onChange={(value) => void changeAutoReapply(value)}
+                  />
                 </section>
 
                 <section class="card section-card about-card">
@@ -1059,7 +1138,7 @@ function SectionHeading(props: { title: string }) {
 }
 
 function ToggleRow(props: { label: string; description: string; checked: boolean; disabled?: boolean; onChange: (value: boolean) => void }) {
-  return <label class={`switch-row ${props.disabled ? "disabled" : ""}`}><span class="switch-copy"><strong>{props.label}</strong><small>{props.description}</small></span><input type="checkbox" checked={props.checked} disabled={props.disabled} onChange={(event) => props.onChange(event.currentTarget.checked)} /><span class="switch-track"><span /></span></label>;
+  return <label class={`switch-row ${props.disabled ? "disabled" : ""}`}><span class="switch-copy"><strong>{props.label}</strong><small>{props.description}</small></span><input type="checkbox" checked={props.checked} disabled={props.disabled} onChange={(event) => { const input = event.currentTarget; props.onChange(input.checked); input.checked = props.checked; }} /><span class="switch-track"><span /></span></label>;
 }
 
 function NumberControl(props: {

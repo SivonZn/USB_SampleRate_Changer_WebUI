@@ -1,0 +1,170 @@
+diff --git a/extras/alsa-hw-params.sh b/extras/alsa-hw-params.sh
+index 625fde79d0830bddac684839638b57d725fec897..14519d48b82510a20796660b56d6245d67f4839 100644
+--- a/extras/alsa-hw-params.sh
++++ b/extras/alsa-hw-params.sh
+@@ -1,39 +1,131 @@
+ #!/system/bin/sh
+ 
+-rst="closed"
+-file="/proc/asound/card1/pcm0p/sub0/hw_params"
+-if [ -r "$file" ]; then
+-    # For non-hardware offload use
+-    rst="`cat $file`"
+-    if [ ! "$rst" = "closed" ];then
+-        echo "DAC Connection Status:"
+-        echo "$rst"
+-    fi
+-fi
++show_all=false
++case "${1:-}" in
++    "")
++        ;;
++    --all)
++        show_all=true
++        ;;
++    -h | --help)
++        echo "Usage: ${0##*/} [--all]"
++        echo "Reports ALSA PCM endpoints together with their role and runtime state."
++        exit 0
++        ;;
++    *)
++        echo "Unsupported option: $1" 1>&2
++        exit 1
++        ;;
++esac
+ 
+-if [ "$rst" = "closed" ]; then
+-    # For USB hardware offload use
+-    for i in `seq 0 90`; do
+-    
+-        file="/proc/asound/card0/pcm${i}p/sub0/hw_params"
+-        if [ -r "$file" ]; then
+-            rst="`cat $file`"
+-            
+-            if [ ! "$rst" = "closed" ];then
+-                echo "Active Audio Connection Status (/proc/asound/card0/pcm${i}p):"
+-                echo "$rst"
+-                break
+-            fi
+-            
+-        fi
+-        
+-    done
+-fi
++if "$show_all"; then
++    if [ -r /proc/asound/cards ]; then
++        echo
++        echo "ALSA cards:"
++        cat /proc/asound/cards
++    fi
++    if [ -r /proc/asound/pcm ]; then
++        echo
++        echo "ALSA PCM device map:"
++        cat /proc/asound/pcm
++    fi
++fi
++
++print_pcm_endpoint()
++{
++    params_file="$1"
++    pcm_dir="${params_file%/sub0/hw_params}"
++    pcm_node="${pcm_dir##*/}"
++    info_file="$pcm_dir/sub0/info"
++    status_file="$pcm_dir/sub0/status"
++    params="`cat "$params_file" 2>/dev/null`"
++
++    if [ "$params" = "closed" ]; then
++        if ! "$show_all"; then
++            return
++        fi
++        pcm_state="CLOSED"
++    else
++        pcm_state="UNKNOWN"
++        if [ -r "$status_file" ]; then
++            detected_state="`sed -n 's/^state:[[:space:]]*//p' "$status_file"`"
++            if [ -n "$detected_state" ]; then
++                pcm_state="$detected_state"
++            fi
++        fi
++    fi
++
++    pcm_id=""
++    pcm_stream=""
++    if [ -r "$info_file" ]; then
++        pcm_id="`sed -n 's/^id:[[:space:]]*//p' "$info_file"`"
++        pcm_stream="`sed -n 's/^stream:[[:space:]]*//p' "$info_file"`"
++    fi
++    if [ -z "$pcm_stream" ]; then
++        case "$pcm_node" in
++            *p) pcm_stream="PLAYBACK" ;;
++            *c) pcm_stream="CAPTURE" ;;
++            *)  pcm_stream="UNKNOWN" ;;
++        esac
++    fi
++
++    echo
++    echo "Endpoint: $pcm_dir"
++    echo "  Direction: $pcm_stream"
++    if [ -n "$pcm_id" ]; then
++        echo "  PCM ID: $pcm_id"
++    fi
++    echo "  State: $pcm_state"
++
++    if [ "$params" != "closed" ]; then
++        owner_pid=""
++        if [ -r "$status_file" ]; then
++            owner_pid="`sed -n 's/^owner_pid[[:space:]]*:[[:space:]]*//p' "$status_file"`"
++        fi
++        if [ -n "$owner_pid" ]; then
++            owner_name=""
++            if [ -r "/proc/$owner_pid/cmdline" ]; then
++                owner_name="`tr '\000' ' ' < "/proc/$owner_pid/cmdline" 2>/dev/null`"
++            fi
++            if [ -n "$owner_name" ]; then
++                echo "  Owner: $owner_pid ($owner_name)"
++            else
++                echo "  Owner PID: $owner_pid"
++            fi
++        fi
++        echo "  Hardware parameters:"
++        echo "$params" | sed 's/^/    /'
++    fi
++
++}
++
++for params_file in /proc/asound/card*/pcm*/sub0/hw_params; do
++    if [ -r "$params_file" ]; then
++        print_pcm_endpoint "$params_file"
++    fi
++done
++
+ 
+-if [ -r "/proc/asound/card1/id" ]; then
+-    if [ ! "`cat /proc/asound/card1/id`" = "closed"  -a  -r "/proc/asound/card1/stream0" ];then
+-        echo "\nDAC Hardware Profile:"
+-        cat '/proc/asound/card1/stream0'
++profile_count=0
++for profile_file in /proc/asound/card*/stream*; do
++    if [ -r "$profile_file" ]; then
++        profile_count=$((profile_count + 1))
++        card_dir="${profile_file%/*}"
++        card_id=""
++        if [ -r "$card_dir/id" ]; then
++            card_id="`cat "$card_dir/id" 2>/dev/null`"
++        fi
++        echo
++        if [ -n "$card_id" ]; then
++            echo "Hardware profile: $profile_file ($card_id)"
++        else
++            echo "Hardware profile: $profile_file"
++        fi
++        cat "$profile_file"
+     fi
+-fi
+-
++done
++
++if "$show_all" && [ "$profile_count" -eq 0 ]; then
++    echo
++    echo "No ALSA hardware stream profile is currently exposed."
++fi
