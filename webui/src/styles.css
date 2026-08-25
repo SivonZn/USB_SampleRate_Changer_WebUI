@@ -173,7 +173,7 @@ h3 { margin: 0; font-size: 15px; }
 
 .diagnostic-output { min-height: 150px; max-height: 330px; overflow: auto; margin: 4px 0 0; padding: 12px; border: 1px solid var(--border); border-radius: 13px; background: var(--surface-lowest); color: var(--muted); font: 10px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; }
 
-#toast-container { position: fixed; right: max(12px, env(safe-area-inset-right, 0px)); bottom: calc(78px + var(--bottom-inset)); left: max(12px, env(safe-area-inset-left, 0px)); z-index: 40; display: grid; width: auto; max-width: 360px; min-width: 0; margin-left: auto; gap: 9px; pointer-events: none; }
+#toast-container { position: fixed; right: max(12px, env(safe-area-inset-right, 0px)); bottom: calc(78px + var(--bottom-inset)); left: max(12px, env(safe-area-inset-left, 0px)); z-index: 40; display: grid; width: auto; max-width: 360px; min-width: 0; margin-inline: auto; gap: 9px; pointer-events: none; }
 .toast { min-width: 0; overflow-wrap: anywhere; padding: 12px 14px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface-3); box-shadow: 0 14px 35px #00000055; color: var(--text); font-size: 12px; line-height: 1.4; white-space: pre-wrap; word-break: break-word; pointer-events: auto; animation: toast-in .18s ease-out; }
 .toast.success { border-color: #56d39a66; color: var(--success); }
 .toast.error { border-color: color-mix(in srgb, var(--danger) 45%, transparent); color: var(--danger); }
