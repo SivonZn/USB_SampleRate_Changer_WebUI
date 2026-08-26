@@ -125,21 +125,20 @@ const bluetoothHalOptions = [
 ] as const;
 
 const resamplerOptions = [
-  ["default", "脚本默认 · 179 dB / 408 / 99 cheat"],
-  ["159-480-92", "旧版默认 · 159 dB / 480 / 92"],
-  ["165-360-104", "低性能设备 · 165 dB / 360 / 104"],
-  ["179-408-99", "Android 12+ 推荐 · 179 dB / 408 / 99"],
-  ["194-520-100", "1:1 Bit-perfect · 194 dB / 520 / 100"],
-  ["ultra-hifi", "Ultra HiFi · 194 dB / 520 / 98 cheat"],
-  ["cheap-44", "廉价 DAC 44.1 kHz · 194/520/92"],
-  ["cheap-44-low", "廉价 DAC 44.1 kHz 低负载 · 194/520/91"],
-  ["cheap-48", "廉价 DAC 48 kHz · 194/520/84"],
-  ["cheap-48-low", "廉价 DAC 48 kHz 低负载 · 194/520/83"],
-  ["cheap-96", "廉价 DAC 96 kHz · 194/520/42"],
-  ["mock-dac-a", "Mock DAC-A · 150/80/109"],
-  ["mock-dac-b", "Mock DAC-B · 120/80/97"],
-  ["mock-dac-c", "Mock DAC-C · 100/80/104"],
-  ["mock-mastering", "Mock Mastering · 159/240/99"]
+  ["159-480-92", "旧版默认\n159dB / 480 / 92%(cutoff)"],
+  ["165-360-104", "低性能设备\n165dB / 360 / 104%(cheat)"],
+  ["179-408-99", "Android 12+（默认）\n179dB / 408 / 99%(cheat)"],
+  ["194-520-100", "1:1 Bit-perfect\n194dB / 520 / 100%(cutoff)"],
+  ["ultra-hifi", "Ultra HiFi\n194dB / 520 / 98%(cheat)"],
+  ["cheap-44", "目标音源 44.1kHz\n194dB / 520 / 92%(cutoff)"],
+  ["cheap-44-low", "目标音源 44.1kHz 兼容模式\n194dB / 520 / 91%(cutoff)"],
+  ["cheap-48", "目标音源 48kHz\n194dB / 520 / 84%(cutoff)"],
+  ["cheap-48-low", "目标音源 48kHz 兼容模式\n194dB / 520 / 83%(cutoff)"],
+  ["cheap-96", "目标音源 96kHz\n194dB / 520 / 42%(cutoff)"],
+  ["mock-dac-a", "AK4491EQ 陡峭滚降\n150dB / 80 / 109%(cheat)"],
+  ["mock-dac-b", "ES9039PRO 快速滚降\n120dB / 80 / 97%(cutoff)"],
+  ["mock-dac-c", "更好的SoX HQ线性相位采样\n100dB / 80 / 104%(cheat)"],
+  ["mock-mastering", "iZotope无混叠采样\n159dB / 240 / 99%(cheat)"]
 ] as const;
 
 const diagnosticOptions = [
@@ -151,7 +150,12 @@ const diagnosticOptions = [
 const languageOptions = [["zh-CN", "中文"], ["en", "English"]] as const;
 
 const rateSelectOptions = [...rateOptions, ["custom", "自定义整数（44100–768000 Hz）"]] as const;
-const resamplerSelectOptions = [...resamplerOptions, ["custom", "自定义完整参数"]] as const;
+const resamplerCustomOption = ["custom", "自定义完整参数"] as const;
+const resamplerPresetGroups = [
+  { label: "常规", options: [...resamplerOptions.slice(0, 5), resamplerCustomOption] },
+  { label: "非线性DAC/蓝牙耳机", options: resamplerOptions.slice(5, 10) },
+  { label: "模拟滤波", options: resamplerOptions.slice(10) }
+] as const;
 const resamplerBypassOptions = [["none", "44.1 kHz 起"], ["48", "48 kHz 起"], ["96", "96 kHz 起"]] as const;
 const ioSchedulerOptions = ["*", "none", "noop", "deadline", "mq-deadline", "cfq", "bfq", "kyber"].map((value) => [value, value === "*" ? "自动选择" : value] as const);
 const ioToneOptions = ["light", "m-light", "medium", "boost", "exp"].map((value) => [value, value] as const);
@@ -491,6 +495,28 @@ function App() {
 
   let pageViewport: HTMLDivElement | undefined;
   let carousel: EmblaCarouselType | undefined;
+  let inputSwipeStart: { x: number; y: number } | undefined;
+
+  function handleInputTouchStart(event: TouchEvent) {
+    const target = event.target;
+    if (!(target instanceof Element) || !target.closest(".page-swipe-input")) return;
+    const touch = event.touches[0];
+    if (touch) inputSwipeStart = { x: touch.clientX, y: touch.clientY };
+  }
+
+  function handleInputTouchEnd(event: TouchEvent) {
+    if (!inputSwipeStart) return;
+    const touch = event.changedTouches[0];
+    const start = inputSwipeStart;
+    inputSwipeStart = undefined;
+    if (!touch) return;
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    if (Math.abs(dx) < 42 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+    event.preventDefault();
+    if (dx < 0) carousel?.scrollNext();
+    else carousel?.scrollPrev();
+  }
 
   const activeIndex = createMemo(() => pages.indexOf(activePage()));
 
@@ -752,6 +778,54 @@ function App() {
     setUsbPeriod(normalizeUsbPeriod(String(Number(normalizeUsbPeriod()) + direction * 125)));
   }
 
+  function keepRangeThumbOnly(event: PointerEvent) {
+    const input = event.currentTarget as HTMLInputElement;
+    delete input.dataset.blockedClick;
+    delete input.dataset.blockedValue;
+    const rect = input.getBoundingClientRect();
+    const min = Number(input.min);
+    const max = Number(input.max);
+    const value = Number(input.value);
+    if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min || !Number.isFinite(value)) return;
+    const inset = Math.min(12, rect.height / 2);
+    const fraction = Math.max(0, Math.min(1, (value - min) / (max - min)));
+    const thumbCenter = rect.left + inset + fraction * Math.max(0, rect.width - inset * 2);
+    if (Math.abs(event.clientX - thumbCenter) > Math.max(14, inset * 1.6)) {
+      input.dataset.blockedClick = "true";
+      input.dataset.blockedValue = input.value;
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }
+
+  function handleRangeInput(event: InputEvent & { currentTarget: HTMLInputElement }) {
+    const range = event.currentTarget;
+    if (range.dataset.blockedClick === "true") {
+      range.value = range.dataset.blockedValue ?? range.value;
+      return;
+    }
+    setUsbPeriod(range.value);
+  }
+
+  function releaseRangePointer(event: Event) {
+    const range = event.currentTarget as HTMLInputElement;
+    if (range.dataset.blockedClick !== "true") return;
+    range.value = range.dataset.blockedValue ?? range.value;
+    window.setTimeout(() => {
+      delete range.dataset.blockedClick;
+      delete range.dataset.blockedValue;
+    }, 0);
+  }
+
+  function cancelBlockedRangeClick(event: MouseEvent) {
+    const range = event.currentTarget as HTMLInputElement;
+    if (range.dataset.blockedClick !== "true") return;
+    event.preventDefault();
+    event.stopPropagation();
+    delete range.dataset.blockedClick;
+    delete range.dataset.blockedValue;
+  }
+
   function applyUsbPeriod() {
     const normalized = normalizeUsbPeriod();
     if (normalized !== usbPeriod()) setUsbPeriod(normalized);
@@ -774,19 +848,6 @@ function App() {
 
   function normalizeResamplerPercent(value = resamplerPercent(), cheat = resamplerCheat()): string {
     return normalizeResamplerValue(value, 1, cheat ? 200 : 100, 1, "99");
-  }
-
-  function stepResamplerStopBand(direction: -1 | 1) {
-    setResamplerStopBand(normalizeResamplerValue(String(Number(normalizeResamplerStopBand()) + direction), 20, 242, 1, "179"));
-  }
-
-  function stepResamplerHalfLength(direction: -1 | 1) {
-    setResamplerHalfLength(normalizeResamplerValue(String(Number(normalizeResamplerHalfLength()) + direction * 8), 8, 640, 8, "408"));
-  }
-
-  function stepResamplerPercent(direction: -1 | 1) {
-    const normalized = normalizeResamplerPercent();
-    setResamplerPercent(normalizeResamplerPercent(String(Number(normalized) + direction), resamplerCheat()));
   }
 
   function changeRate(value: string) {
@@ -923,9 +984,9 @@ function App() {
         duration: 18,
         loop: false,
         skipSnaps: false,
-        watchDrag: (_api, event) => !(
-          event.target instanceof Element && event.target.closest("[data-no-page-drag]")
-        )
+        watchDrag: (_api, event) => !(event.target instanceof Element && (
+          event.target.closest("[data-no-page-drag]") || event.target.closest(".page-swipe-input")
+        ))
       });
       carousel.on("scroll", syncCarousel);
       carousel.on("select", syncCarousel);
@@ -954,7 +1015,7 @@ function App() {
           <button class="icon-button" aria-label={tx("打开执行日志")} title={tx("执行日志")} onClick={() => openOverlay("log")}><LogIcon /></button>
         </header>
 
-        <div class="page-viewport" ref={pageViewport}>
+        <div class="page-viewport" ref={pageViewport} onTouchStart={handleInputTouchStart} onTouchEnd={handleInputTouchEnd} onTouchCancel={() => { inputSwipeStart = undefined; }}>
           <div class="page-track">
             <section class="page-panel" data-page="policy" aria-label={tx("音频策略页面")}>
               <main class="page-content">
@@ -976,7 +1037,7 @@ function App() {
                     <SectionHeading title={tx("采样格式")} />
                     <label class="field-label" for="rate">{tx("采样率")}</label>
                     <SelectField id="rate" title={tx("选择采样率")} value={settings().rate} options={localizeOptions(rateSelectOptions)} language={language()} onChange={changeRate} />
-                    <Show when={settings().rate === "custom"}><input class="number-input spaced-input" inputmode="numeric" type="number" min="44100" max="768000" step="1" value={settings().customRate} onInput={(event) => update("customRate", event.currentTarget.value)} placeholder={tx("例如 123456")} /></Show>
+                    <Show when={settings().rate === "custom"}><input class="number-input spaced-input page-swipe-input" inputmode="numeric" type="number" min="44100" max="768000" step="1" value={settings().customRate} onInput={(event) => update("customRate", event.currentTarget.value)} placeholder={tx("例如 123456")} /></Show>
                     <label class="field-label" for="bits">{tx("位深 / 格式")}</label>
                     <SelectField id="bits" title={tx("选择位深与格式")} value={settings().bitDepth} options={localizeOptions(bitOptions)} language={language()} onChange={(value) => update("bitDepth", value)} />
                   </article>
@@ -1014,13 +1075,13 @@ function App() {
                   <article class="card tool-panel">
                     <SectionHeading title={tx("AudioFlinger 重采样器")} />
                     <p class="field-help">{tx("选择重采样质量预设，或自定义阻带衰减、滤波器长度与截止比例。")}</p>
-                    <SelectField title={tx("选择重采样预设")} value={resamplerPreset()} options={localizeOptions(resamplerSelectOptions)} language={language()} onChange={(value) => setResamplerPreset(value)} />
+                    <SelectField title={tx("选择重采样预设")} value={resamplerPreset()} options={[]} groups={resamplerPresetGroups.map(({ label, options }) => ({ label: tx(label), options: localizeOptions(options) }))} language={language()} onChange={(value) => setResamplerPreset(value)} />
                     <Show when={resamplerPreset() === "custom"}><div class="custom-resampler">
                       <label class="field-label">{tx("生效起始采样率")}</label><SelectField title={tx("选择生效起始采样率")} value={resamplerBypass()} options={localizeOptions(resamplerBypassOptions)} language={language()} onChange={(value) => setResamplerBypass(value)} />
                       <ToggleRow label={tx("补偿模式（Cheat）")} description={tx("关闭时使用标准截止百分比。")} checked={resamplerCheat()} onChange={(value) => { setResamplerCheat(value); setResamplerPercent(normalizeResamplerPercent(resamplerPercent(), value)); }} />
-                      <NumberControl label={tx("阻带衰减")} value={resamplerStopBand()} min={20} max={242} step={1} unit="dB" decreaseLabel={tx("减少 1 dB")} increaseLabel={tx("增加 1 dB")} rangeLabel={tx("快速调整阻带衰减")} onInput={setResamplerStopBand} onBlur={() => setResamplerStopBand(normalizeResamplerStopBand())} onStep={stepResamplerStopBand} disabled={busy()} />
-                      <NumberControl label={tx("半滤波器长度")} value={resamplerHalfLength()} min={8} max={640} step={8} decreaseLabel={tx("减少 8")} increaseLabel={tx("增加 8")} rangeLabel={tx("快速调整半滤波器长度")} onInput={setResamplerHalfLength} onBlur={() => setResamplerHalfLength(normalizeResamplerHalfLength())} onStep={stepResamplerHalfLength} disabled={busy()} />
-                      <NumberControl label={resamplerCheat() ? tx("补偿百分比（Cheat）") : tx("截止百分比")} value={resamplerPercent()} min={1} max={resamplerCheat() ? 200 : 100} step={1} unit="%" decreaseLabel={tx("减少 1 个百分点")} increaseLabel={tx("增加 1 个百分点")} rangeLabel={tx("快速调整百分比")} onInput={setResamplerPercent} onBlur={() => setResamplerPercent(normalizeResamplerPercent())} onStep={stepResamplerPercent} disabled={busy()} />
+                      <label class="field-label">{tx("阻带衰减")} (dB)<input class="number-input page-swipe-input" aria-label={`${tx("阻带衰减")} (dB)`} inputmode="numeric" type="number" min="20" max="242" step="1" value={resamplerStopBand()} onInput={(event) => setResamplerStopBand(event.currentTarget.value)} onBlur={() => setResamplerStopBand(normalizeResamplerStopBand())} disabled={busy()} /></label>
+                      <label class="field-label">{tx("半滤波器长度")}<input class="number-input page-swipe-input" aria-label={tx("半滤波器长度")} inputmode="numeric" type="number" min="8" max="640" step="8" value={resamplerHalfLength()} onInput={(event) => setResamplerHalfLength(event.currentTarget.value)} onBlur={() => setResamplerHalfLength(normalizeResamplerHalfLength())} disabled={busy()} /></label>
+                      <label class="field-label">{resamplerCheat() ? tx("补偿百分比（Cheat）") : tx("截止百分比")} (%)<input class="number-input page-swipe-input" aria-label={`${resamplerCheat() ? tx("补偿百分比（Cheat）") : tx("截止百分比")} (%)`} inputmode="numeric" type="number" min="1" max={resamplerCheat() ? "200" : "100"} step="1" value={resamplerPercent()} onInput={(event) => setResamplerPercent(event.currentTarget.value)} onBlur={() => setResamplerPercent(normalizeResamplerPercent())} disabled={busy()} /></label>
                     </div></Show>
                     <div class="inline-actions"><button class="secondary-button" disabled={busy()} onClick={() => openConfirm({ title: "重置重采样设置", message: "将清除 AudioFlinger 重采样属性并恢复系统默认行为。", confirmLabel: "确认重置", action: () => void runExtra(["resampler", "reset"], "正在重置重采样…", "重采样已恢复系统默认") })}>{toolAction() === "resampler-reset" ? tx("处理中…") : tx("重置")}</button><button class="primary-button" disabled={busy()} onClick={() => runExtra(resamplerPreset() === "custom" ? ["resampler", "custom", resamplerBypass(), resamplerCheat() ? "cheat" : "cutoff", normalizeResamplerStopBand(), normalizeResamplerHalfLength(), normalizeResamplerPercent()] : ["resampler", resamplerPreset()], "正在应用重采样配置…", "重采样配置已应用")}>{toolAction() === "resampler" ? tx("处理中…") : tx("应用")}</button></div>
                   </article>
@@ -1028,13 +1089,13 @@ function App() {
                   <article class="card tool-panel">
                     <SectionHeading title={tx("USB 传输周期")} />
                     <p class="field-help">{tx("设置 USB 音频数据传输间隔。数值越低延迟越小，但可能降低播放稳定性。")}</p>
-                    <div class="period-control" data-no-page-drag>
+                    <div class="period-control">
                       <div class="period-stepper">
-                        <button type="button" aria-label={tx("减少 125 微秒")} onClick={() => stepUsbPeriod(-1)} disabled={busy() || Number(normalizeUsbPeriod()) <= 125}>−</button>
-                        <label><input aria-label={tx("USB Transfer Period")} inputmode="numeric" type="number" min="125" max="50000" step="125" value={usbPeriod()} onInput={(event) => setUsbPeriod(event.currentTarget.value)} onBlur={() => setUsbPeriod(normalizeUsbPeriod())} /><span>μs</span></label>
-                        <button type="button" aria-label={tx("增加 125 微秒")} onClick={() => stepUsbPeriod(1)} disabled={busy() || Number(normalizeUsbPeriod()) >= 50000}>+</button>
+                        <button type="button" data-no-page-drag aria-label={tx("减少 125 微秒")} onClick={() => stepUsbPeriod(-1)} disabled={busy() || Number(normalizeUsbPeriod()) <= 125}>−</button>
+                        <label><input class="page-swipe-input" aria-label={tx("USB Transfer Period")} inputmode="numeric" type="number" min="125" max="50000" step="125" value={usbPeriod()} onInput={(event) => setUsbPeriod(event.currentTarget.value)} onBlur={() => setUsbPeriod(normalizeUsbPeriod())} /><span>μs</span></label>
+                        <button type="button" data-no-page-drag aria-label={tx("增加 125 微秒")} onClick={() => stepUsbPeriod(1)} disabled={busy() || Number(normalizeUsbPeriod()) >= 50000}>+</button>
                       </div>
-                      <input class="period-range" aria-label={tx("快速调整 USB Transfer Period")} type="range" min="125" max="50000" step="125" value={normalizeUsbPeriod()} onInput={(event) => setUsbPeriod(event.currentTarget.value)} />
+                      <input class="period-range" data-no-page-drag aria-label={tx("快速调整 USB Transfer Period")} type="range" min="125" max="50000" step="125" value={normalizeUsbPeriod()} onPointerDown={keepRangeThumbOnly} onInput={handleRangeInput} onPointerUp={releaseRangePointer} onPointerCancel={releaseRangePointer} onClick={cancelBlockedRangeClick} />
                       <div class="period-scale"><span>125 μs</span><strong>{normalizeUsbPeriod()} μs</strong><span>50000 μs</span></div>
                     </div>
                     <div class="inline-actions"><button class="secondary-button" disabled={busy()} onClick={() => openConfirm({ title: "重置 USB Transfer Period", message: "将清除当前 USB 传输周期设置并恢复系统默认值。", confirmLabel: "确认重置", action: () => void runExtra(["usb-period", "reset"], "正在重置 USB period…", "USB period 已恢复系统默认") })}>{toolAction() === "usb-period-reset" ? tx("处理中…") : tx("重置")}</button><button class="primary-button" disabled={busy()} onClick={applyUsbPeriod}>{toolAction() === "usb-period" ? tx("处理中…") : tx("应用")}</button></div>
@@ -1158,34 +1219,6 @@ function SectionHeading(props: { title: string }) {
 
 function ToggleRow(props: { label: string; description: string; checked: boolean; disabled?: boolean; onChange: (value: boolean) => void }) {
   return <label class={`switch-row ${props.disabled ? "disabled" : ""}`}><span class="switch-copy"><strong>{props.label}</strong><small>{props.description}</small></span><input type="checkbox" checked={props.checked} disabled={props.disabled} onChange={(event) => { const input = event.currentTarget; props.onChange(input.checked); input.checked = props.checked; }} /><span class="switch-track"><span /></span></label>;
-}
-
-function NumberControl(props: {
-  label: string;
-  value: string;
-  min: number;
-  max: number;
-  step: number;
-  unit?: string;
-  decreaseLabel: string;
-  increaseLabel: string;
-  rangeLabel: string;
-  onInput: (value: string) => void;
-  onBlur: () => void;
-  onStep: (direction: -1 | 1) => void;
-  disabled?: boolean;
-}) {
-  const numericValue = () => Number(props.value);
-  return <div class="period-control parameter-control" data-no-page-drag>
-    <label class="field-label">{props.label}</label>
-    <div class="period-stepper">
-      <button type="button" aria-label={props.decreaseLabel} onClick={() => props.onStep(-1)} disabled={props.disabled || numericValue() <= props.min}>−</button>
-      <label><input aria-label={props.label} inputmode="numeric" type="number" min={props.min} max={props.max} step={props.step} value={props.value} onInput={(event) => props.onInput(event.currentTarget.value)} onBlur={props.onBlur} /><Show when={props.unit}><span>{props.unit}</span></Show></label>
-      <button type="button" aria-label={props.increaseLabel} onClick={() => props.onStep(1)} disabled={props.disabled || numericValue() >= props.max}>+</button>
-    </div>
-    <input class="period-range" aria-label={props.rangeLabel} type="range" min={props.min} max={props.max} step={props.step} value={props.value} onInput={(event) => props.onInput(event.currentTarget.value)} onChange={props.onBlur} disabled={props.disabled} />
-    <div class="period-scale"><span>{props.min}{props.unit ? ` ${props.unit}` : ""}</span><strong>{props.value}{props.unit ? ` ${props.unit}` : ""}</strong><span>{props.max}{props.unit ? ` ${props.unit}` : ""}</span></div>
-  </div>;
 }
 
 render(() => <App />, document.getElementById("app")!);

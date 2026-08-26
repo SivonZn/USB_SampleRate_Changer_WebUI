@@ -4,19 +4,26 @@ import { CheckIcon } from "./Icons";
 import type { Language } from "./i18n";
 
 export type SelectOption = readonly [value: string, label: string];
+export type SelectGroup = {
+  label: string;
+  options: ReadonlyArray<SelectOption>;
+};
 
 export default function SelectField(props: {
   id?: string;
   title: string;
   value: string;
   options: ReadonlyArray<SelectOption>;
+  groups?: ReadonlyArray<SelectGroup>;
   language?: Language;
   disabled?: boolean;
   onChange: (value: string) => void;
 }) {
   const [open, setOpen] = createSignal(false);
   const [closing, setClosing] = createSignal(false);
-  const selectedLabel = createMemo(() => props.options.find(([value]) => value === props.value)?.[1] ?? props.value);
+  const allOptions = createMemo(() => props.groups?.flatMap((group) => group.options) ?? props.options);
+  const selectedLabel = createMemo(() => allOptions().find(([value]) => value === props.value)?.[1] ?? props.value);
+  const selectedTitle = createMemo(() => selectedLabel().split("\n", 1)[0]);
   const historyKey = `select-${Math.random().toString(36).slice(2)}`;
   let optionList: HTMLDivElement | undefined;
   let ownsHistoryEntry = false;
@@ -75,6 +82,20 @@ export default function SelectField(props: {
     });
   });
 
+  function renderOption([value, label]: SelectOption) {
+    const [title, ...details] = label.split("\n");
+    return <button
+      type="button"
+      role="option"
+      class="select-option"
+      classList={{ selected: value === props.value }}
+      aria-selected={value === props.value}
+      onClick={() => { props.onChange(value); closeDialog(); }}
+    >
+      <span class="select-option-copy"><span>{title}</span><Show when={details.length > 0}><small>{details.join("\n")}</small></Show></span><span class="select-check"><Show when={value === props.value}><CheckIcon /></Show></span>
+    </button>;
+  }
+
   return (
     <>
       <button
@@ -86,7 +107,7 @@ export default function SelectField(props: {
         disabled={props.disabled}
         onClick={openDialog}
       >
-        <span>{selectedLabel()}</span><span class="select-chevron" aria-hidden="true" />
+        <span>{selectedTitle()}</span><span class="select-chevron" aria-hidden="true" />
       </button>
       <Show when={open()}>
         <Portal>
@@ -103,18 +124,9 @@ export default function SelectField(props: {
             >
               <header><h2>{props.title}</h2><button type="button" class="dialog-close" aria-label={englishDialog() ? `Close ${props.title} selector` : `关闭${props.title}选择`} onClick={() => closeDialog()}>×</button></header>
               <div class="select-option-list" role="listbox" aria-label={props.title} ref={optionList}>
-                <For each={props.options}>{([value, label]) => (
-                  <button
-                    type="button"
-                    role="option"
-                    class="select-option"
-                    classList={{ selected: value === props.value }}
-                    aria-selected={value === props.value}
-                    onClick={() => { props.onChange(value); closeDialog(); }}
-                  >
-                    <span>{label}</span><span class="select-check"><Show when={value === props.value}><CheckIcon /></Show></span>
-                  </button>
-                )}</For>
+                <Show when={props.groups} fallback={<For each={props.options}>{(option) => renderOption(option)}</For>}>
+                  <For each={props.groups}>{(group) => <section class="select-option-group"><h3>{group.label}</h3><For each={group.options}>{(option) => renderOption(option)}</For></section>}</For>
+                </Show>
               </div>
             </section>
           </div>
