@@ -1,0 +1,100 @@
+diff --git a/functions3.shlib b/functions3.shlib
+--- a/functions3.shlib
++++ b/functions3.shlib
+@@ -25,11 +25,13 @@ function reloadAudioServers()
+             if [ -n "$pid" ]; then
+                 kill -HUP $pid 1>"/dev/null" 2>&1
+             fi
+-            for i in `seq 1 10` ; do
++            # Some devices need more than two seconds after consecutive audio restarts.
++            # Wait up to ten seconds and require both the init state and process PID.
++            for i in `seq 1 50` ; do
+                 sleep 0.2
+-                if [ "`getprop init.svc.audioserver`" = "running" ]; then
++                if [ "`getprop init.svc.audioserver`" = "running" -a -n "`pidof audioserver 2>/dev/null`" ]; then
+                     break
+-                elif [ $i -eq 10 ]; then
++                elif [ $i -eq 50 ]; then
+                     echo "audioserver reload failed!" 1>&2
+                     return 1
+                 fi
+diff --git a/extras/change-bluetooth-hal.sh b/extras/change-bluetooth-hal.sh
+--- a/extras/change-bluetooth-hal.sh
++++ b/extras/change-bluetooth-hal.sh
+@@ -42,11 +42,13 @@ function reloadAudioserver()
+             if [ -n "$pid" ]; then
+                 kill -HUP $pid 1>"/dev/null" 2>&1
+             fi
+-            for i in `seq 1 10` ; do
++            # Some devices need more than two seconds after consecutive audio restarts.
++            # Wait up to ten seconds and require both the init state and process PID.
++            for i in `seq 1 50` ; do
+                 sleep 0.2
+-                if [ "`getprop init.svc.audioserver`" = "running" ]; then
++                if [ "`getprop init.svc.audioserver`" = "running" -a -n "`pidof audioserver 2>/dev/null`" ]; then
+                     break
+-                elif [ $i -eq 10 ]; then
++                elif [ $i -eq 50 ]; then
+                     echo "audioserver reload failed!" 1>&2
+                     return 1
+                 fi
+diff --git a/extras/change-resampling-quality.sh b/extras/change-resampling-quality.sh
+--- a/extras/change-resampling-quality.sh
++++ b/extras/change-resampling-quality.sh
+@@ -76,11 +76,13 @@ function reloadAudioserver()
+             if [ -n "$pid" ]; then
+                 kill -HUP $pid 1>"/dev/null" 2>&1
+             fi
+-            for i in `seq 1 10` ; do
++            # Some devices need more than two seconds after consecutive audio restarts.
++            # Wait up to ten seconds and require both the init state and process PID.
++            for i in `seq 1 50` ; do
+                 sleep 0.2
+-                if [ "`getprop init.svc.audioserver`" = "running" ]; then
++                if [ "`getprop init.svc.audioserver`" = "running" -a -n "`pidof audioserver 2>/dev/null`" ]; then
+                     break
+-                elif [ $i -eq 10 ]; then
++                elif [ $i -eq 50 ]; then
+                     echo "audioserver reload failed!" 1>&2
+                     return 1
+                 fi
+diff --git a/extras/change-usb-period.sh b/extras/change-usb-period.sh
+--- a/extras/change-usb-period.sh
++++ b/extras/change-usb-period.sh
+@@ -47,11 +47,13 @@ function reloadAudioserver()
+             if [ -n "$pid" ]; then
+                 kill -HUP $pid 1>"/dev/null" 2>&1
+             fi
+-            for i in `seq 1 10` ; do
++            # Some devices need more than two seconds after consecutive audio restarts.
++            # Wait up to ten seconds and require both the init state and process PID.
++            for i in `seq 1 50` ; do
+                 sleep 0.2
+-                if [ "`getprop init.svc.audioserver`" = "running" ]; then
++                if [ "`getprop init.svc.audioserver`" = "running" -a -n "`pidof audioserver 2>/dev/null`" ]; then
+                     break
+-                elif [ $i -eq 10 ]; then
++                elif [ $i -eq 50 ]; then
+                     echo "audioserver reload failed!" 1>&2
+                     return 1
+                 fi
+diff --git a/extras/jitter-reducer-functions.shlib b/extras/jitter-reducer-functions.shlib
+--- a/extras/jitter-reducer-functions.shlib
++++ b/extras/jitter-reducer-functions.shlib
+@@ -2171,11 +2171,13 @@ function reloadAudioserver()
+             if [ -n "$pid" ]; then
+                 kill -HUP $pid 1>"/dev/null" 2>&1
+             fi
+-            for i in `seq 1 10` ; do
++            # Some devices need more than two seconds after consecutive audio restarts.
++            # Wait up to ten seconds and require both the init state and process PID.
++            for i in `seq 1 50` ; do
+                 sleep 0.2
+-                if [ "`getprop init.svc.audioserver`" = "running" ]; then
++                if [ "`getprop init.svc.audioserver`" = "running" -a -n "`pidof audioserver 2>/dev/null`" ]; then
+                     break
+-                elif [ $i -eq 10 ]; then
++                elif [ $i -eq 50 ]; then
+                     echo "audioserver reload failed!" 1>&2
+                     return 1
+                 fi

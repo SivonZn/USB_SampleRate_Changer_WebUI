@@ -173,6 +173,7 @@ const jitterFeatures = [
 type JitterFeature = typeof jitterFeatures[number][0];
 type JitterValues = Record<JitterFeature, boolean>;
 type RefreshScope = "all" | "policy" | "tools" | "tuning";
+type ToolAction = "bluetooth-hal" | "resampler" | "resampler-reset" | "usb-period" | "usb-period-reset" | "jitter" | "jitter-reset";
 
 const defaultJitterValues = (): JitterValues => Object.fromEntries(
   jitterFeatures.map(([key]) => [key, false])
@@ -444,6 +445,7 @@ function App() {
   const [settings, setSettings] = createSignal<Settings>(defaultSettings());
   const [status, setStatus] = createSignal<Status>({});
   const [busy, setBusy] = createSignal(false);
+  const [toolAction, setToolAction] = createSignal<ToolAction>();
   const [toasts, setToasts] = createSignal<ToastItem[]>([]);
   const [log, setLog] = createSignal("");
   const [policyHelpOpen, setPolicyHelpOpen] = createSignal(false);
@@ -706,8 +708,19 @@ function App() {
   }
 
   async function runExtra(args: string[], _pending: string, success: string) {
+    const action: ToolAction = args[0] === "resampler" && args[1] === "reset"
+      ? "resampler-reset"
+      : args[0] === "usb-period" && args[1] === "reset"
+        ? "usb-period-reset"
+        : args[0] === "jitter" && args[1] === "disable" && args[2] === "all"
+          ? "jitter-reset"
+          : args[0] as ToolAction;
+    setToolAction(action);
     setBusy(true);
     try {
+      if (["bluetooth-hal", "resampler", "usb-period"].includes(args[0])) {
+        showToast(tx("正在应用更改，音频将会短暂断开"));
+      }
       const command = `${CONTROLLER} extra ${args.map(shellQuote).join(" ")}`;
       const result = await rootExec(command);
       const text = `${result.stdout}${result.stderr ? `\n[stderr]\n${result.stderr}` : ""}`.trim();
@@ -717,12 +730,15 @@ function App() {
         return;
       }
       if (result.code !== 0) throw new Error(text || `执行失败，退出码 ${result.code}`);
-      showToast(tx(success));
-      await refresh(false, false, args[0] === "jitter" ? "tuning" : "tools");
+      // Refresh the affected controls before announcing success. This keeps the
+      // completion toast and the busy-state release on the same status check.
+      const refreshed = await refresh(false, false, args[0] === "jitter" ? "tuning" : "tools");
+      if (refreshed) showToast(tx(success));
     } catch (error) {
       showToast(String(error), "error");
     } finally {
       setBusy(false);
+      setToolAction(undefined);
     }
   }
 
@@ -858,6 +874,9 @@ function App() {
     setBusy(true);
     const outputs: string[] = [];
     try {
+      if (dirty.includes("effect")) {
+        showToast(tx("正在应用更改，音频将会短暂断开"));
+      }
       for (const feature of dirty) {
         const args = ["jitter", jitterValues()[feature] ? "enable" : "disable", feature];
         if (feature === "io" && jitterValues().io) args.push(ioScheduler(), ioTone());
@@ -989,7 +1008,7 @@ function App() {
                     <SectionHeading title={tx("蓝牙音频 HAL")} />
                     <p class="field-help">{tx("选择系统使用的蓝牙音频实现。应用时会修改持久属性并重启音频 HAL。")}</p>
                     <SelectField title={tx("选择 Bluetooth HAL")} value={bluetoothHal()} options={localizeOptions(bluetoothHalOptions)} language={language()} onChange={(value) => setBluetoothHal(value)} />
-                    <div class="inline-actions"><button class="primary-button" disabled={busy()} onClick={() => runExtra(["bluetooth-hal", bluetoothHal()], "正在切换 Bluetooth HAL…", "Bluetooth HAL 已切换")}>{tx("应用")}</button></div>
+                    <div class="inline-actions"><button class="primary-button" disabled={busy()} onClick={() => runExtra(["bluetooth-hal", bluetoothHal()], "正在切换 Bluetooth HAL…", "Bluetooth HAL 已切换")}>{toolAction() === "bluetooth-hal" ? tx("处理中…") : tx("应用")}</button></div>
                   </article>
 
                   <article class="card tool-panel">
@@ -1003,7 +1022,7 @@ function App() {
                       <NumberControl label={tx("半滤波器长度")} value={resamplerHalfLength()} min={8} max={640} step={8} decreaseLabel={tx("减少 8")} increaseLabel={tx("增加 8")} rangeLabel={tx("快速调整半滤波器长度")} onInput={setResamplerHalfLength} onBlur={() => setResamplerHalfLength(normalizeResamplerHalfLength())} onStep={stepResamplerHalfLength} disabled={busy()} />
                       <NumberControl label={resamplerCheat() ? tx("补偿百分比（Cheat）") : tx("截止百分比")} value={resamplerPercent()} min={1} max={resamplerCheat() ? 200 : 100} step={1} unit="%" decreaseLabel={tx("减少 1 个百分点")} increaseLabel={tx("增加 1 个百分点")} rangeLabel={tx("快速调整百分比")} onInput={setResamplerPercent} onBlur={() => setResamplerPercent(normalizeResamplerPercent())} onStep={stepResamplerPercent} disabled={busy()} />
                     </div></Show>
-                    <div class="inline-actions"><button class="secondary-button" disabled={busy()} onClick={() => openConfirm({ title: "重置重采样设置", message: "将清除 AudioFlinger 重采样属性并恢复系统默认行为。", confirmLabel: "确认重置", action: () => void runExtra(["resampler", "reset"], "正在重置重采样…", "重采样已恢复系统默认") })}>{tx("重置")}</button><button class="primary-button" disabled={busy()} onClick={() => runExtra(resamplerPreset() === "custom" ? ["resampler", "custom", resamplerBypass(), resamplerCheat() ? "cheat" : "cutoff", normalizeResamplerStopBand(), normalizeResamplerHalfLength(), normalizeResamplerPercent()] : ["resampler", resamplerPreset()], "正在应用重采样配置…", "重采样配置已应用")}>{tx("应用")}</button></div>
+                    <div class="inline-actions"><button class="secondary-button" disabled={busy()} onClick={() => openConfirm({ title: "重置重采样设置", message: "将清除 AudioFlinger 重采样属性并恢复系统默认行为。", confirmLabel: "确认重置", action: () => void runExtra(["resampler", "reset"], "正在重置重采样…", "重采样已恢复系统默认") })}>{toolAction() === "resampler-reset" ? tx("处理中…") : tx("重置")}</button><button class="primary-button" disabled={busy()} onClick={() => runExtra(resamplerPreset() === "custom" ? ["resampler", "custom", resamplerBypass(), resamplerCheat() ? "cheat" : "cutoff", normalizeResamplerStopBand(), normalizeResamplerHalfLength(), normalizeResamplerPercent()] : ["resampler", resamplerPreset()], "正在应用重采样配置…", "重采样配置已应用")}>{toolAction() === "resampler" ? tx("处理中…") : tx("应用")}</button></div>
                   </article>
 
                   <article class="card tool-panel">
@@ -1018,7 +1037,7 @@ function App() {
                       <input class="period-range" aria-label={tx("快速调整 USB Transfer Period")} type="range" min="125" max="50000" step="125" value={normalizeUsbPeriod()} onInput={(event) => setUsbPeriod(event.currentTarget.value)} />
                       <div class="period-scale"><span>125 μs</span><strong>{normalizeUsbPeriod()} μs</strong><span>50000 μs</span></div>
                     </div>
-                    <div class="inline-actions"><button class="secondary-button" disabled={busy()} onClick={() => openConfirm({ title: "重置 USB Transfer Period", message: "将清除当前 USB 传输周期设置并恢复系统默认值。", confirmLabel: "确认重置", action: () => void runExtra(["usb-period", "reset"], "正在重置 USB period…", "USB period 已恢复系统默认") })}>{tx("重置")}</button><button class="primary-button" disabled={busy()} onClick={applyUsbPeriod}>{tx("应用")}</button></div>
+                    <div class="inline-actions"><button class="secondary-button" disabled={busy()} onClick={() => openConfirm({ title: "重置 USB Transfer Period", message: "将清除当前 USB 传输周期设置并恢复系统默认值。", confirmLabel: "确认重置", action: () => void runExtra(["usb-period", "reset"], "正在重置 USB period…", "USB period 已恢复系统默认") })}>{toolAction() === "usb-period-reset" ? tx("处理中…") : tx("重置")}</button><button class="primary-button" disabled={busy()} onClick={applyUsbPeriod}>{toolAction() === "usb-period" ? tx("处理中…") : tx("应用")}</button></div>
                   </article>
 
                   <article class="card tool-panel">
@@ -1041,7 +1060,7 @@ function App() {
                   <div class="switch-grid jitter-grid"><For each={jitterFeatures}>{(feature) => <ToggleRow label={`${tx(feature[1])}${jitterDirty().includes(feature[0]) ? tx(" · 待应用") : ""}`} description={tx(feature[2])} checked={jitterValues()[feature[0]]} onChange={(value) => updateJitter(feature[0], value)} />}</For></div>
                   <Show when={jitterValues().io}><div class="grid two-col io-options"><div><label class="field-label">I/O scheduler</label><SelectField title={tx("选择 I/O scheduler")} value={ioScheduler()} options={localizeOptions(ioSchedulerOptions)} language={language()} onChange={(value) => { setIoScheduler(value); setJitterDirty((current) => current.includes("io") ? current : [...current, "io"]); }} /></div><div><label class="field-label">{tx("声音倾向")}</label><SelectField title={tx("选择声音倾向")} value={ioTone()} options={ioToneOptions} language={language()} onChange={(value) => { setIoTone(value); setJitterDirty((current) => current.includes("io") ? current : [...current, "io"]); }} /></div></div></Show>
                   <Show when={jitterValues().wifi}><div class="wifi-option"><ToggleRow label={tx("切换时不重启 Wi-Fi")} description={tx("使用 upstream 的 no-restart 模式。")} checked={wifiNoRestart()} onChange={(value) => { setWifiNoRestart(value); setJitterDirty((current) => current.includes("wifi") ? current : [...current, "wifi"]); }} /></div></Show>
-                  <div class="inline-actions right tuning-actions"><button class="secondary-button" disabled={busy()} onClick={() => openConfirm({ title: "重置 Jitter 基础项", message: "将恢复 SELinux、温控、Doze、调频、相机、日志、I/O、虚拟内存和 Wi-Fi 的基础设置。", confirmLabel: "确认重置", action: () => void runExtra(["jitter", "disable", "all"], "正在重置全部基础 jitter 项…", "Jitter 基础项已重置") })}>{tx("重置")}</button><button class="primary-button" disabled={busy() || !jitterDirty().length} onClick={applyJitter}>{tx("应用")}</button></div>
+                  <div class="inline-actions right tuning-actions"><button class="secondary-button" disabled={busy()} onClick={() => openConfirm({ title: "重置 Jitter 基础项", message: "将恢复 SELinux、温控、Doze、调频、相机、日志、I/O、虚拟内存和 Wi-Fi 的基础设置。", confirmLabel: "确认重置", action: () => void runExtra(["jitter", "disable", "all"], "正在重置全部基础 jitter 项…", "Jitter 基础项已重置") })}>{toolAction() === "jitter-reset" ? tx("处理中…") : tx("重置")}</button><button class="primary-button" disabled={busy() || !jitterDirty().length} onClick={applyJitter}>{toolAction() === "jitter" ? tx("处理中…") : tx("应用")}</button></div>
                 </section>
 
               </main>
