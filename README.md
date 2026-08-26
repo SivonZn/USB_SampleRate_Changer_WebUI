@@ -18,6 +18,8 @@ This project is a WebUI manager for [USB_SampleRate_Changer](https://github.com/
 
 In the built module, all upstream scripts, templates and Extras are placed under `core/`. The module root keeps only module metadata, installation scripts, the controller and WebUI files. The Magisk/KernelSU-required `customize.sh` and `uninstall.sh` remain at the module root.
 
+APatch Manager module updates are enabled through `module.prop`'s `updateJson` field. APatch reads the published `update.json`, compares `versionCode`, downloads the Release ZIP, and installs it through its native module installer. The Release workflow publishes both the installable ZIP and `update.json`.
+
 ## Parameter mapping
 
 | WebUI control | `USB_SampleRate_Changer` parameter |

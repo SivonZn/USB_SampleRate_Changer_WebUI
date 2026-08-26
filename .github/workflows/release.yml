@@ -39,9 +39,50 @@ jobs:
           OUTPUT_DIR: ${{ github.workspace }}/output
         run: ./build.sh
 
+      - name: Generate APatch update metadata
+        env:
+          OUTPUT_DIR: ${{ github.workspace }}/output
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path.cwd()
+          event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+          tag = event["release"]["tag_name"]
+          version = (root / "VERSION").read_text().strip()
+          if tag != f"v{version}":
+              raise SystemExit(f"Release tag {tag!r} does not match VERSION {version!r}")
+
+          module_prop = (root / "module" / "module.prop").read_text().splitlines()
+          version_code = next(
+              int(line.split("=", 1)[1])
+              for line in module_prop
+              if line.startswith("versionCode=")
+          )
+          asset_name = f"USB_SampleRate_Changer_WebUI-{version}.zip"
+          asset_path = Path(os.environ["OUTPUT_DIR"]) / asset_name
+          digest = hashlib.sha256(asset_path.read_bytes()).hexdigest()
+          repository = os.environ["GITHUB_REPOSITORY"]
+          payload = {
+              "version": version,
+              "versionCode": version_code,
+              "zipUrl": f"https://github.com/{repository}/releases/download/{tag}/{asset_name}",
+              "changelog": event["release"].get("body") or "",
+              "sha256": digest,
+          }
+          (Path(os.environ["OUTPUT_DIR"]) / "update.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+          )
+          PY
+
       - name: Upload installable module
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.release.tag_name }}
-          files: output/USB_SampleRate_Changer_WebUI-*.zip
+          files: |
+            output/USB_SampleRate_Changer_WebUI-*.zip
+            output/update.json
           fail_on_unmatched_files: true
