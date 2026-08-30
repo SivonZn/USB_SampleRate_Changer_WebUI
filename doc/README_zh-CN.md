@@ -19,8 +19,6 @@ English reference：[README.md](../README.md)
 
 构建出的模块会将上游脚本、模板和 Extras 全部放在模块根目录的 `core/` 中；根目录仅保留模块元数据、安装脚本、控制器和 WebUI 文件。Magisk/KernelSU 要求的 `customize.sh` 与 `uninstall.sh` 仍位于模块根目录。
 
-模块通过 `module.prop` 中的 `updateJson` 字段接入 APatch Manager 的原生更新功能。APatch 会读取已发布的 `update.json`，比较 `versionCode`，下载 Release 中的模块 ZIP，并交由自身的模块安装器完成更新。Release Workflow 会同时发布可安装 ZIP 和 `update.json`。
-
 ## 参数对应关系
 
 | WebUI 控件 | `USB_SampleRate_Changer` 参数 |
