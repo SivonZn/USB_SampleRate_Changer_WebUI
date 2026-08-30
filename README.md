@@ -47,11 +47,12 @@ APatch Manager module updates are enabled through `module.prop`'s `updateJson` f
 
 ```text
 SolidJS WebUI
-  -> window.ksu.exec(usbsrctl apply ... | usbsrctl extra ...)
-  -> Rust validates a fixed option schema
-  -> /data/adb/usb_samplerate_changer_webui/generated/*.sh
-  -> select the audioserver mount namespace when required
+  -> APatch/KernelSU root bridge (spawn, with exec fallback)
+  -> usbsrctl validates the versioned command catalog
+  -> render the validated shell program in memory
+  -> feed it directly to the shell, entering the audioserver mount namespace when required
   -> execute the selected upstream script from the module's `core/` directory
+  -> record the command summary in /data/local/tmp/usb_samplerate_changer_webui/last-command.log
 ```
 
 ## Build

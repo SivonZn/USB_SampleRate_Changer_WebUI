@@ -48,11 +48,12 @@ English reference：[README.md](../README.md)
 
 ```text
 SolidJS WebUI
-  -> window.ksu.exec(usbsrctl apply ... | usbsrctl extra ...)
-  -> Rust 校验固定的参数模式
-  -> /data/adb/usb_samplerate_changer_webui/generated/*.sh
-  -> 必要时切换到 audioserver 的 mount namespace
+  -> APatch/KernelSU root bridge（优先 spawn，exec 作为回退）
+  -> usbsrctl 校验版本化命令目录
+  -> 在内存中生成已校验的 shell 程序
+  -> 直接送入 shell，并在需要时进入 audioserver 的 mount namespace
   -> 执行模块 `core/` 中选定的上游脚本
+  -> 将命令摘要记录到 /data/local/tmp/usb_samplerate_changer_webui/last-command.log
 ```
 
 ## 构建

@@ -28,6 +28,28 @@ fi
 
 ui_print "- Audio policy XML: $POLICY_FILE"
 
+# One-time install/upgrade migration for the legacy controller layout. Keep
+# every removal target as a literal absolute path so runtime variables cannot
+# broaden or redirect the deletion scope.
+ui_print "- Migrating legacy controller runtime files"
+if [ -L "/data/adb/usb_samplerate_changer_webui/generated" ]; then
+    rm -f "/data/adb/usb_samplerate_changer_webui/generated"
+elif [ -d "/data/adb/usb_samplerate_changer_webui/generated" ]; then
+    rm -rf "/data/adb/usb_samplerate_changer_webui/generated"
+fi
+if [ -f "/data/adb/usb_samplerate_changer_webui/last.log" ] || [ -L "/data/adb/usb_samplerate_changer_webui/last.log" ]; then
+    rm -f "/data/adb/usb_samplerate_changer_webui/last.log"
+fi
+if [ -f "/data/adb/usb_samplerate_changer_webui/last.status" ] || [ -L "/data/adb/usb_samplerate_changer_webui/last.status" ]; then
+    rm -f "/data/adb/usb_samplerate_changer_webui/last.status"
+fi
+if [ -f "/data/adb/usb_samplerate_changer_webui/last-command.log" ] || [ -L "/data/adb/usb_samplerate_changer_webui/last-command.log" ]; then
+    rm -f "/data/adb/usb_samplerate_changer_webui/last-command.log"
+fi
+if [ -f "/data/adb/usb_samplerate_changer_webui/boot-reapply.log" ] || [ -L "/data/adb/usb_samplerate_changer_webui/boot-reapply.log" ]; then
+    rm -f "/data/adb/usb_samplerate_changer_webui/boot-reapply.log"
+fi
+
 touch "$MODPATH/skip_mount"
 set_perm "$MODPATH/usbsrctl" 0 0 0755
 set_perm "$MODPATH/core/USB_SampleRate_Changer.sh" 0 0 0755
