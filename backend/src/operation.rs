@@ -222,11 +222,14 @@ pub(crate) fn run_extra(action: ExtraAction) -> Result<i32, String> {
     )
 }
 
-pub(crate) fn run_operation(settings: Settings, action: Action) -> Result<i32, String> {
+pub(crate) fn run_operation(mut settings: Settings, action: Action) -> Result<i32, String> {
     let module_dir = module_dir()?;
     validate_settings_for_action(&settings, &module_dir, action)?;
     ensure_state_layout()?;
     let lock = acquire_operation_lock()?;
+    if matches!(action, Action::Reset) && crate::dynamic_direct::generated_is_dynamic() {
+        settings.policy = "offload-direct-dynamic".into();
+    }
     let state_store = StateStore::new();
 
     let generated = render_policy_script(&settings, &module_dir, action);
@@ -1263,7 +1266,9 @@ fn finalize_operation(
         "not-connected"
     };
 
-    let persistence_allowed = persistence_allowed_with_progress(
+    let dynamic_failed = matches!(&persistence, Persistence::PolicyApply(settings)
+        if settings.policy == "offload-direct-dynamic") && final_code != 0;
+    let persistence_allowed = !dynamic_failed && persistence_allowed_with_progress(
         kind,
         upstream_succeeded,
         operation_state,

@@ -1,5 +1,5 @@
 import type { PolicySettings } from "./models";
-import { rateOptions } from "./options";
+import { rateOptions, policyOptionGroups } from "./options";
 import type { ControllerStatus } from "../platform/controller-protocol";
 
 export const defaultPolicySettings = (): PolicySettings => ({
@@ -54,4 +54,17 @@ export function policySettingsFromStatus(
     settings.forceBluetoothQti = status.force_bluetooth_qti === "1";
   }
   return settings;
+}
+
+// Keep capability filtering from the controller, but use a stable presentation
+// order with a final home for future options unknown to this WebUI.
+export function groupPolicyOptions<T extends { value: string }>(options: ReadonlyArray<T>) {
+  const known = new Set<string>(policyOptionGroups.flatMap(({ values }) => [...values]));
+  return policyOptionGroups.map(({ labelKey, values }) => ({
+    labelKey,
+    options: [
+      ...values.flatMap((value) => options.filter((option) => option.value === value)),
+      ...(labelKey === "policy.group.other" ? options.filter(({ value }) => !known.has(value)) : [])
+    ]
+  })).filter(({ options }) => options.length > 0);
 }

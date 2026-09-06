@@ -2,7 +2,7 @@ import { For, Show } from "solid-js";
 import SelectField from "../../SelectField";
 import type { Language } from "../../i18n";
 import type { PolicySettings } from "../../domain/models";
-import { displayRate, selectedRate } from "../../domain/policy";
+import { displayRate, selectedRate, groupPolicyOptions } from "../../domain/policy";
 import { SectionHeading } from "../../shared/components/SectionHeading";
 import { ToggleRow } from "../../shared/components/ToggleRow";
 import type { Translator } from "../../shared/types";
@@ -34,7 +34,14 @@ export function PolicyPage(props: {
         ? props.tx("policy.status.disconnected")
         : props.tx("policy.status.unknown");
   };
-  const policySelectOptions = () => props.policyOptions.map((option) => [option.value, label(option)] as const);
+  const selectedPolicyLabel = () => label(props.policyOptions.find((option) => option.value === props.model.settings().policy) ?? { value: "", labelKey: "" });
+  const policySelectGroups = () => groupPolicyOptions(props.policyOptions).map(({ labelKey, options }) => ({
+    label: props.tx(labelKey),
+    options: options.map((option) => [option.value,
+      option.value === "offload-direct-dynamic" || option.value === "legacy"
+        ? props.tx(`policy.option.${option.value}.listLabel`) : label(option)
+    ] as const)
+  }));
   const rateSelect = () => [...props.rateOptions.map((option) => [option.value, label(option)] as const), ["custom", props.tx("rate.custom")] as const];
   const bitSelect = () => props.bitDepthOptions.map((option) => [option.value, label(option)] as const);
   const switchBindings = {
@@ -50,7 +57,9 @@ export function PolicyPage(props: {
           <SectionHeading title={props.tx("policy.preview")} />
           <div class="summary-line">
             <span class="summary-key">{props.tx("policy.summary.policy")}</span>
-            <strong>{label(props.policyOptions.find((option) => option.value === props.model.settings().policy) ?? { value: "", labelKey: "" })}</strong>
+            <strong>{selectedPolicyLabel()}</strong>
+          </div>
+          <div class="summary-line">
             <span class="summary-key">{props.tx("policy.summary.format")}</span>
             <strong>{rateLabel(selectedRate(props.model.settings()))} · {label(props.bitDepthOptions.find((option) => option.value === props.model.settings().bitDepth) ?? { value: "", labelKey: "" })}</strong>
           </div>
@@ -69,7 +78,7 @@ export function PolicyPage(props: {
           <article class="card section-card">
             <SectionHeading title={props.tx("policy.section")} />
             <div class="field-label-row"><label class="field-label" for="policy">{props.tx("policy.template")}</label><button type="button" class="inline-link" onClick={props.onOpenHelp}>ⓘ {props.tx("policy.guide")}</button></div>
-            <SelectField id="policy" title={props.tx("policy.template.select")} value={props.model.settings().policy} options={policySelectOptions()} language={props.language} onChange={(value) => props.model.update("policy", value)} />
+            <SelectField id="policy" title={props.tx("policy.template.select")} value={props.model.settings().policy} options={[]} groups={policySelectGroups()} displayLabel={selectedPolicyLabel()} language={props.language} onChange={(value) => props.model.update("policy", value)} />
           </article>
 
           <article class="card section-card">

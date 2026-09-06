@@ -1,17 +1,14 @@
-export const policyOptions = [
-  ["auto", "policy.option.auto.label", "policy.option.auto.description"],
-  ["offload", "policy.option.offload.label", "policy.option.offload.description"],
-  ["offload-hifi-playback", "policy.option.offload-hifi-playback.label", "policy.option.offload-hifi-playback.description"],
-  ["offload-direct", "policy.option.offload-direct.label", "policy.option.offload-direct.description"],
-  ["offload-safer", "policy.option.offload-safer.label", "policy.option.offload-safer.description"],
-  ["bypass", "policy.option.bypass.label", "policy.option.bypass.description"],
-  ["bypass-safer", "policy.option.bypass-safer.label", "policy.option.bypass-safer.description"],
-  ["legacy", "policy.option.legacy.label", "policy.option.legacy.description"],
-  ["safe", "policy.option.safe.label", "policy.option.safe.description"],
-  ["safest", "policy.option.safest.label", "policy.option.safest.description"],
-  ["safest-auto", "policy.option.safest-auto.label", "policy.option.safest-auto.description"],
-  ["usb", "policy.option.usb.label", "policy.option.usb.description"]
+export const policyOptionGroups = [
+  { labelKey: "policy.group.default", values: ["auto"] },
+  { labelKey: "policy.group.bypass", values: ["bypass", "bypass-safer"] },
+  { labelKey: "policy.group.hardware", values: ["offload", "offload-hifi-playback", "offload-direct", "offload-safer"] },
+  { labelKey: "policy.group.compatibility", values: ["offload-direct-dynamic", "legacy", "safe", "safest", "safest-auto"] },
+  { labelKey: "policy.group.other", values: ["usb"] }
 ] as const;
+
+export const policyOptions = policyOptionGroups.flatMap(({ values }) =>
+  values.map((value) => [value, `policy.option.${value}.label`, `policy.option.${value}.description`] as const)
+);
 
 export const policyDetails: Record<string, string> = Object.fromEntries(
   policyOptions.map(([value]) => [value, `policy.option.${value}.detail`])

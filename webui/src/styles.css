@@ -116,6 +116,7 @@ h3 { margin: 0; font-size: 15px; }
 .preview-card { border-color: var(--accent); background: var(--surface); }
 .page-panel[data-page="policy"] .preview-card { position: sticky; z-index: 3; top: 10px; box-shadow: 0 4px 14px rgba(0, 0, 0, .08); }
 .summary-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px 12px; }
+.preview-card .summary-line + .summary-line { margin-top: 10px; }
 .summary-line strong { margin-right: 12px; font-size: 13px; }
 .tag-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
 .tag { padding: 5px 8px; border-radius: 8px; color: var(--on-accent-container); background: var(--accent-container); font-size: 10px; }

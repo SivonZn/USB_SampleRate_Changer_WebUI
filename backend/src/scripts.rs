@@ -22,6 +22,14 @@ fi\n\
 echo \"namespace verified: $self_ns\"\n";
 
 pub(crate) fn validate_settings(settings: &Settings, module_dir: &Path) -> Result<(), String> {
+    if settings.policy == "offload-direct-dynamic" {
+        if settings.test || settings.amzm || settings.force_bluetooth_qti {
+            return Err("Direct PCM dynamic inherits the system Bluetooth module; custom templates, Amazon mode and forced Bluetooth HAL are not supported".into());
+        }
+        if !module_dir.join("core/templates/offload_direct_dynamic_template.xml").is_file() {
+            return Err("Direct PCM dynamic template is missing".into());
+        }
+    }
     if policy_flag(&settings.policy).is_none() {
         return Err(format!("unsupported policy mode: {}", settings.policy));
     }
@@ -49,6 +57,9 @@ pub(crate) fn validate_settings(settings: &Settings, module_dir: &Path) -> Resul
 }
 
 fn validate_template(template: &str, module_dir: &Path) -> Result<(), String> {
+    if template == "offload_direct_dynamic_template.xml" {
+        return Err("select offload-direct-dynamic to use the dynamic template with inheritance".into());
+    }
     if template.is_empty()
         || template.starts_with('/')
         || template
@@ -151,6 +162,14 @@ pub(crate) fn policy_command_summary(
     module_dir: &Path,
     action: Action,
 ) -> String {
+    if settings.policy == "offload-direct-dynamic" && matches!(action, Action::Apply) {
+        let mut args = vec!["_dynamic-direct".to_string(), "--policy".into(), settings.policy.clone(),
+            "--sample-rate".into(), settings.sample_rate.to_string(), "--bit-depth".into(), settings.bit_depth.clone()];
+        if settings.drc { args.push("--drc".into()); }
+        if settings.force_usbv2 { args.push("--force-usbv2".into()); }
+        return std::iter::once(module_dir.join("usbsrctl").to_string_lossy().into_owned())
+            .chain(args).map(|arg| shell_quote(&arg)).collect::<Vec<_>>().join(" ");
+    }
     command_for(
         &module_dir.join(CORE_DIR).join("USB_SampleRate_Changer.sh"),
         upstream_args(settings, action),
@@ -248,7 +267,7 @@ pub(crate) fn render_policy_script(
     action: Action,
 ) -> String {
     let command = policy_command_summary(settings, module_dir, action);
-    let restart = restart_command(module_dir, action);
+    let restart = restart_command(module_dir, action, settings.policy == "offload-direct-dynamic");
 
     format!(
         "{GUARDED_SHELL_PREFIX}echo 'controller_upstream_started=1' >&2\n{command}\nstatus=$?\nif [ $status -eq 0 ]; then exec {restart}; else exit $status; fi\n"
@@ -274,7 +293,7 @@ pub(crate) fn render_extra_status_script(script: &Path, action: &ExtraAction) ->
     })
 }
 
-fn restart_command(module_dir: &Path, action: Action) -> String {
+fn restart_command(module_dir: &Path, action: Action, dynamic_direct: bool) -> String {
     let reload = module_dir
         .join(CORE_DIR)
         .join("extras")
@@ -283,7 +302,9 @@ fn restart_command(module_dir: &Path, action: Action) -> String {
         "/system/bin/sh".to_string(),
         reload.to_string_lossy().into_owned(),
     ];
-    if matches!(action, Action::Reset) {
+    // Dynamic mode changes AudioPolicy XML only. Restarting the vendor HAL
+    // after audioserver on Thor stalled AudioService during the device test.
+    if matches!(action, Action::Reset) && !dynamic_direct {
         args.push("--all".to_string());
     }
     args.iter()

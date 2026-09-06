@@ -746,6 +746,9 @@ pub(crate) fn collect_templates(root: &Path) -> Vec<String> {
                 walk(root, &path, output);
             } else if file_type.is_file() && path.extension() == Some(OsStr::new("xml")) {
                 if let Ok(relative) = path.strip_prefix(root) {
+                    if relative == Path::new("offload_direct_dynamic_template.xml") {
+                        continue; // Requires the dedicated inheritance generator.
+                    }
                     output.push(relative.to_string_lossy().replace('\\', "/"));
                 }
             }

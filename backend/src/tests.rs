@@ -326,7 +326,7 @@ fn renders_machine_schema_with_stable_contract_fields() {
     for field in [
         "\"schema_version\":1",
         "\"api_version\":1",
-        "\"controller_version\":\"1.1.0\"",
+        concat!("\"controller_version\":\"", env!("CARGO_PKG_VERSION"), "\""),
         "\"limits\":",
         "\"policy\":{",
         "\"sample_rates\":[",
@@ -1891,4 +1891,22 @@ fn reapply_runs_independent_verifications_and_stops_after_timeout() {
     let markers = String::from_utf8_lossy(&result.execution.output.stdout);
     assert!(markers.contains("batch_verification_exit=1:124"));
     assert!(markers.contains("batch_verification_skipped=2:prior-phase-failure-or-timeout"));
+}
+
+#[test]
+fn dynamic_direct_uses_dedicated_generator_for_apply_and_reapply() {
+    let settings = Settings { policy: "offload-direct-dynamic".into(), sample_rate: 48000,
+        bit_depth: "24".into(), ..Settings::default() };
+    let script = render_policy_script(&settings, &module_fixture(), Action::Apply);
+    assert!(script.contains("'_dynamic-direct' '--policy' 'offload-direct-dynamic'"));
+    assert!(!script.contains("core/USB_SampleRate_Changer.sh"));
+    assert!(script.contains("reload-audio-servers.sh"));
+    let plan = vec![ReapplyAction::Policy(settings.clone())];
+    assert!(reapply_command_summaries(&plan, &module_fixture())[0].contains("'_dynamic-direct'"));
+    let reset = render_policy_script(&settings, &module_fixture(), Action::Reset);
+    assert!(reset.contains("core/USB_SampleRate_Changer.sh") && reset.contains("'--reset'"));
+    assert!(!reset.contains("'--all'"));
+    assert!(render_policy_script(&Settings::default(), &module_fixture(), Action::Reset).contains("'--all'"));
+    let stored = StoredSettings { policy: settings, policy_configured: true, ..StoredSettings::default() };
+    assert_eq!(parse_stored_settings(&render_stored_settings(&stored)).policy.policy, "offload-direct-dynamic");
 }

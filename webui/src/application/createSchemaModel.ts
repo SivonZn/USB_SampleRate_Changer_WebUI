@@ -1,4 +1,5 @@
 import { createSignal, type Accessor } from "solid-js";
+import { groupPolicyOptions } from "../domain/policy";
 import {
   bitOptions,
   bluetoothHalOptions,
@@ -155,7 +156,7 @@ export function createSchemaModel(controller: Pick<ControllerClient, "schema">):
 
   return {
     schema,
-    policyOptions: () => schema()?.policy.options ?? fallbackPolicy,
+    policyOptions: () => groupPolicyOptions(schema()?.policy.options ?? fallbackPolicy).flatMap(({ options }) => options),
     rateOptions: () => schema()?.sampleRates ?? fallbackRates,
     bitDepthOptions: () => schema()?.bitDepths ?? fallbackBits,
     policySwitchOptions: () => {

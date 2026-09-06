@@ -66,13 +66,16 @@ if [ -n "$(git -C "$SUBMODULE_DIR" status --porcelain)" ]; then
     printf 'Including local USB_SampleRate_Changer worktree changes in this build.\n'
 fi
 
-BUILD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/usb-samplerate-webui.XXXXXX")"
+mkdir -p "$ROOT_DIR/build"
+BUILD_DIR="$(mktemp -d "$ROOT_DIR/build/usb-samplerate-webui.XXXXXX")"
 UPSTREAM_DIR="$BUILD_DIR/upstream"
 STAGING_DIR="$BUILD_DIR/module"
 trap 'rm -rf "$BUILD_DIR"' EXIT HUP INT TERM
 
 mkdir -p "$UPSTREAM_DIR"
 (cd "$SUBMODULE_DIR" && tar --exclude='.git' -cf - .) | (cd "$UPSTREAM_DIR" && tar -xf -)
+# Keep git apply scoped to this copy even when build/ is inside the main repo.
+git -C "$UPSTREAM_DIR" init -q
 
 while IFS= read -r patch_name || [ -n "$patch_name" ]; do
     case "$patch_name" in
@@ -116,6 +119,10 @@ for upstream_directory in templates extras; do
     fi
     cp -R "$UPSTREAM_DIR/$upstream_directory" "$STAGING_DIR/core/$upstream_directory"
 done
+if [ ! -f "$STAGING_DIR/core/extras/reload-audio-servers.sh" ]; then
+    printf 'Controller restart script missing after patch application\n' >&2
+    exit 1
+fi
 
 sed "s/^version=.*/version=$MODULE_VERSION/" "$ROOT_DIR/module/module.prop" > "$STAGING_DIR/module.prop"
 cp "$ROOT_DIR/module/customize.sh" \
