@@ -49,7 +49,7 @@ SolidJS WebUI
   -> APatch/KernelSU root bridge（优先 spawn，exec 作为回退）
   -> usbsrctl 校验版本化命令目录
   -> 在内存中生成已校验的 shell 程序
-  -> 直接送入 shell，并在需要时进入 audioserver 的 mount namespace
+  -> 直接送入 shell，并在需要时进入全局 mount namespace
   -> 执行模块 `core/` 中选定的上游脚本
   -> 将命令摘要记录到 /data/local/tmp/usb_samplerate_changer_webui/last-command.log
 ```

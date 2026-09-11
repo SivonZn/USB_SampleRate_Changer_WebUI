@@ -7,19 +7,13 @@ use crate::paths::CORE_DIR;
 
 const GUARDED_SHELL_PREFIX: &str = "#!/system/bin/sh\n\
 set -u\n\
-audio_pid=\"$(pidof audioserver 2>/dev/null)\"\n\
-audio_pid=\"${audio_pid%% *}\"\n\
-if [ -z \"$audio_pid\" ]; then\n\
-    audio_pid=\"$(getprop init.svc_debug_pid.audioserver 2>/dev/null)\"\n\
-fi\n\
-[ -n \"$audio_pid\" ] || { echo \"audioserver is not running\" >&2; exit 70; }\n\
 self_ns=\"$(readlink /proc/self/ns/mnt 2>/dev/null)\"\n\
-audio_ns=\"$(readlink \"/proc/$audio_pid/ns/mnt\" 2>/dev/null)\"\n\
-if [ -z \"$self_ns\" ] || [ -z \"$audio_ns\" ] || [ \"$self_ns\" != \"$audio_ns\" ]; then\n\
-    echo \"mount namespace mismatch: self=$self_ns audio=$audio_ns\" >&2\n\
+init_ns=\"$(readlink /proc/1/ns/mnt 2>/dev/null)\"\n\
+if [ -z \"$self_ns\" ] || [ -z \"$init_ns\" ] || [ \"$self_ns\" != \"$init_ns\" ]; then\n\
+    echo \"global mount namespace mismatch: self=$self_ns init=$init_ns\" >&2\n\
     exit 71\n\
 fi\n\
-echo \"namespace verified: $self_ns\"\n";
+echo \"global namespace verified: $self_ns\"\n";
 
 pub(crate) fn validate_settings(settings: &Settings, module_dir: &Path) -> Result<(), String> {
     if settings.policy == "offload-direct-dynamic" {

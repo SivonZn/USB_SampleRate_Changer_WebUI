@@ -1496,7 +1496,7 @@ unsafe fn libc_flock(fd: i32, operation: i32) -> i32 {
 }
 
 fn script_runner(namespace: &NamespaceInfo) -> (&'static str, String) {
-    if namespace.matches() == Some(true) {
+    if namespace.is_global() == Some(true) {
         ("current-namespace", "/system/bin/sh -s".to_string())
     } else {
         (
@@ -1511,7 +1511,7 @@ fn execute_script(
     namespace: &NamespaceInfo,
     timeout: Duration,
 ) -> Result<ExecutionResult, String> {
-    if namespace.matches() == Some(true) {
+    if namespace.is_global() == Some(true) {
         let mut process = Command::new("/system/bin/sh");
         process.arg("-s");
         let output = execute_stdin(&mut process, script, timeout, EXECUTION_OUTPUT_LIMIT)
@@ -1534,7 +1534,7 @@ fn execute_script_locked(
     lock: &OperationLock,
 ) -> Result<ExecutionResult, String> {
     let lease = lock.lease()?;
-    if namespace.matches() == Some(true) {
+    if namespace.is_global() == Some(true) {
         let mut process = Command::new("/system/bin/sh");
         process.arg("-s");
         return execute_stdin_with_lease(

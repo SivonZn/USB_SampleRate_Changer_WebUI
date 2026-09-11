@@ -56,10 +56,11 @@ pub(crate) fn print_status(module_dir: &Path) {
             .unwrap_or_default()
     );
     println!("self_ns={}", namespace.self_ns.as_deref().unwrap_or(""));
+    println!("init_ns={}", namespace.init_ns.as_deref().unwrap_or(""));
     println!("audio_ns={}", namespace.audio_ns.as_deref().unwrap_or(""));
     println!(
         "namespace_ok={}",
-        match namespace.matches() {
+        match namespace.is_global() {
             Some(true) => "1",
             Some(false) => "0",
             None => "unknown",

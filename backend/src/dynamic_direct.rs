@@ -2,7 +2,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::ops::Range;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use roxmltree::{Document, Node};
@@ -301,6 +301,30 @@ fn command(program: &str, args: &[&str]) -> Result<String, String> {
 fn digest(value: &str) -> String {
     format!("{:x}", Sha256::digest(value.as_bytes()))
 }
+fn verify_policy_view(root: &Path, target: &Path, expected: &str) -> Result<(), String> {
+    let relative = target
+        .strip_prefix("/")
+        .map_err(|_| format!("policy target is not absolute: {}", target.display()))?;
+    let visible_path = root.join(relative);
+    let visible = read(&visible_path)
+        .map_err(|error| format!("audioserver cannot read {}: {error}", target.display()))?;
+    if visible != expected {
+        return Err(format!(
+            "audioserver sees a different policy at {}: expected {}, found {}",
+            target.display(),
+            digest(expected),
+            digest(&visible)
+        ));
+    }
+    Ok(())
+}
+fn verify_audioserver_policy(pid: u32, target: &Path, expected: &str) -> Result<(), String> {
+    verify_policy_view(
+        &PathBuf::from(format!("/proc/{pid}/root")),
+        target,
+        expected,
+    )
+}
 fn mounted_roots(mountinfo: &str, target: &str) -> Vec<String> {
     mountinfo
         .lines()
@@ -310,14 +334,49 @@ fn mounted_roots(mountinfo: &str, target: &str) -> Vec<String> {
         })
         .collect()
 }
+fn snapshot_path(target: &Path, identity: &str, directory: &Path) -> std::path::PathBuf {
+    let key = digest(&format!("{}\n{identity}", target.display()));
+    directory.join(format!("{key}.xml"))
+}
+fn is_snapshot_file(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    let stem = name
+        .strip_suffix(".xml")
+        .or_else(|| name.strip_suffix(".sha256"));
+    stem.is_some_and(|stem| stem.len() == 64 && stem.bytes().all(|byte| byte.is_ascii_hexdigit()))
+}
+fn prune_stale_snapshots(directory: &Path, snapshot: &Path) -> Result<(), String> {
+    let checksum = snapshot.with_extension("sha256");
+    for entry in fs::read_dir(directory)
+        .map_err(|error| format!("cannot list {}: {error}", directory.display()))?
+    {
+        let entry =
+            entry.map_err(|error| format!("cannot inspect {}: {error}", directory.display()))?;
+        let path = entry.path();
+        if path == snapshot || path == checksum || !is_snapshot_file(&path) {
+            continue;
+        }
+        if entry
+            .file_type()
+            .map_err(|error| format!("cannot inspect {}: {error}", path.display()))?
+            .is_file()
+        {
+            fs::remove_file(&path).map_err(|error| {
+                format!("cannot remove stale snapshot {}: {error}", path.display())
+            })?;
+        }
+    }
+    Ok(())
+}
 fn baseline(
     target: &Path,
     roots: &[String],
     identity: &str,
     directory: &Path,
 ) -> Result<String, String> {
-    let key = digest(&format!("{}\n{identity}", target.display()));
-    let snapshot = directory.join(format!("{key}.xml"));
+    let snapshot = snapshot_path(target, identity, directory);
     if roots.is_empty() {
         let original = read(target)?;
         if original.contains(MARKER) {
@@ -330,6 +389,7 @@ fn baseline(
             digest(&original).as_bytes(),
             0o600,
         )?;
+        prune_stale_snapshots(directory, &snapshot)?;
         return Ok(original);
     }
     if roots.len() != 1 || !roots[0].ends_with("/audio_conf_generated.xml") {
@@ -345,6 +405,7 @@ fn baseline(
     if read(&snapshot.with_extension("sha256"))? != digest(&original) {
         return Err("original policy snapshot checksum mismatch; reset first".into());
     }
+    prune_stale_snapshots(directory, &snapshot)?;
     Ok(original)
 }
 fn include_path(stock: &str, target: &Path, suffix: &str) -> Result<String, String> {
@@ -410,9 +471,12 @@ pub(crate) fn apply(settings: &Settings, module_dir: &Path) -> Result<(), String
         return Err("internal dynamic entry requires dynamic policy".into());
     }
     let ns = crate::android::namespace_info();
-    if ns.self_ns.is_none() || ns.self_ns != ns.audio_ns {
-        return Err("dynamic mount namespace mismatch".into());
+    if ns.is_global() != Some(true) {
+        return Err("dynamic policy must run in the global mount namespace".into());
     }
+    let audio_pid = ns
+        .audio_pid
+        .ok_or("audioserver is unavailable for policy visibility verification")?;
     let dump = command("dumpsys", &["media.audio_policy"])?;
     let path = dump
         .lines()
@@ -469,21 +533,36 @@ pub(crate) fn apply(settings: &Settings, module_dir: &Path) -> Result<(), String
     if old.is_some() {
         command("umount", &[&target_text])?;
     }
-    let install = || -> Result<(), String> {
-        atomic_write(Path::new(GENERATED), generated.as_bytes(), 0o644)?;
+    let restore_previous = |previous: &str| -> Result<(), String> {
+        atomic_write(Path::new(GENERATED), previous.as_bytes(), 0o644)?;
         command("chcon", &["u:object_r:vendor_configs_file:s0", GENERATED])?;
         command("mount", &["-o", "bind", GENERATED, &target_text])?;
         Ok(())
     };
-    if let Err(error) = install() {
-        if let Some(old) = old {
-            let restore = || -> Result<(), String> {
-                atomic_write(Path::new(GENERATED), old.as_bytes(), 0o644)?;
-                command("chcon", &["u:object_r:vendor_configs_file:s0", GENERATED])?;
-                command("mount", &["-o", "bind", GENERATED, &target_text])?;
-                Ok(())
-            };
-            restore()
+    let prepare = || -> Result<(), String> {
+        atomic_write(Path::new(GENERATED), generated.as_bytes(), 0o644)?;
+        command("chcon", &["u:object_r:vendor_configs_file:s0", GENERATED])?;
+        Ok(())
+    };
+    if let Err(error) = prepare() {
+        if let Some(old) = old.as_deref() {
+            restore_previous(old)
+                .map_err(|restore| format!("{error}; previous mount restore failed: {restore}"))?;
+        }
+        return Err(error);
+    }
+    if let Err(error) = command("mount", &["-o", "bind", GENERATED, &target_text]) {
+        if let Some(old) = old.as_deref() {
+            restore_previous(old)
+                .map_err(|restore| format!("{error}; previous mount restore failed: {restore}"))?;
+        }
+        return Err(error);
+    }
+    if let Err(error) = verify_audioserver_policy(audio_pid, &target, &generated) {
+        command("umount", &[&target_text])
+            .map_err(|cleanup| format!("{error}; new mount cleanup failed: {cleanup}"))?;
+        if let Some(old) = old.as_deref() {
+            restore_previous(old)
                 .map_err(|restore| format!("{error}; previous mount restore failed: {restore}"))?;
         }
         return Err(error);
@@ -606,17 +685,49 @@ mod tests {
         .is_err());
     }
     #[test]
+    fn policy_visibility_checks_the_consumers_mount_view() {
+        let dir =
+            std::env::temp_dir().join(format!("direct-pcm-visibility-{}", std::process::id()));
+        let target = Path::new("/vendor/etc/audio_policy_configuration.xml");
+        let visible = dir.join("vendor/etc/audio_policy_configuration.xml");
+        fs::create_dir_all(visible.parent().unwrap()).unwrap();
+        fs::write(&visible, "generated policy").unwrap();
+
+        assert!(verify_policy_view(&dir, target, "generated policy").is_ok());
+        assert!(verify_policy_view(&dir, target, "different policy")
+            .unwrap_err()
+            .contains("different policy"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
     fn repeated_apply_uses_snapshot_and_new_boot_cannot_reuse_it() {
         let dir = std::env::temp_dir().join(format!("direct-pcm-snapshot-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let target = dir.join("policy.xml");
         fs::write(&target, STOCK).unwrap();
         assert_eq!(baseline(&target, &[], "boot1", &dir).unwrap(), STOCK);
+        let boot1 = snapshot_path(&target, "boot1", &dir);
+        assert!(boot1.is_file());
+        let candidate = dir.join("candidate.xml");
+        let unrelated = dir.join("manual.xml");
+        fs::write(&candidate, "candidate").unwrap();
+        fs::write(&unrelated, "manual").unwrap();
+
+        fs::write(&target, STOCK).unwrap();
+        assert_eq!(baseline(&target, &[], "boot2", &dir).unwrap(), STOCK);
+        let boot2 = snapshot_path(&target, "boot2", &dir);
+        assert!(boot2.is_file());
+        assert!(boot2.with_extension("sha256").is_file());
+        assert!(!boot1.exists());
+        assert!(!boot1.with_extension("sha256").exists());
+        assert!(candidate.is_file());
+        assert!(unrelated.is_file());
+
         fs::write(&target, "generated override").unwrap();
         let roots = vec![GENERATED.to_string()];
-        assert_eq!(baseline(&target, &roots, "boot1", &dir).unwrap(), STOCK);
-        assert!(baseline(&target, &roots, "boot2", &dir).is_err());
-        assert!(baseline(&target, &["/another-module.xml".into()], "boot1", &dir).is_err());
+        assert_eq!(baseline(&target, &roots, "boot2", &dir).unwrap(), STOCK);
+        assert!(baseline(&target, &roots, "boot1", &dir).is_err());
+        assert!(baseline(&target, &["/another-module.xml".into()], "boot2", &dir).is_err());
         fs::remove_dir_all(dir).unwrap();
     }
 }

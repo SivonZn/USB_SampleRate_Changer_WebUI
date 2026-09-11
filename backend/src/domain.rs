@@ -317,13 +317,14 @@ impl ReapplyAction {
 #[derive(Clone, Debug)]
 pub(crate) struct NamespaceInfo {
     pub(crate) self_ns: Option<String>,
+    pub(crate) init_ns: Option<String>,
     pub(crate) audio_ns: Option<String>,
     pub(crate) audio_pid: Option<u32>,
 }
 
 impl NamespaceInfo {
-    pub(crate) fn matches(&self) -> Option<bool> {
-        match (&self.self_ns, &self.audio_ns) {
+    pub(crate) fn is_global(&self) -> Option<bool> {
+        match (&self.self_ns, &self.init_ns) {
             (Some(left), Some(right)) => Some(left == right),
             _ => None,
         }

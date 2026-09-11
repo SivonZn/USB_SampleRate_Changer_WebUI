@@ -14,7 +14,7 @@ use crate::catalog::{
 use crate::cli::{
     normalize_sample_rate, parse, parse_extra_action, parse_settings_args, ControllerCommand,
 };
-use crate::domain::{Action, ExtraAction, ReapplyAction, Settings, StoredSettings};
+use crate::domain::{Action, ExtraAction, NamespaceInfo, ReapplyAction, Settings, StoredSettings};
 use crate::operation::{
     acquire_operation_lock_at, classify_operation_result, classify_operation_state,
     classify_upstream, execute_after_state_preflight, execute_phased_mutation_with,
@@ -724,7 +724,7 @@ fn operation_state_distinguishes_partial_reapply_batches() {
 }
 
 #[test]
-fn extras_use_the_same_namespace_guard_as_policy() {
+fn extras_use_the_global_namespace_guard_as_policy() {
     let action = extra(&["usb-period", "status"]);
     let script = render_extra_script(
         &module_fixture()
@@ -734,10 +734,29 @@ fn extras_use_the_same_namespace_guard_as_policy() {
         &action,
     );
     assert!(script.contains("readlink /proc/self/ns/mnt"));
-    assert!(script.contains("mount namespace mismatch"));
+    assert!(script.contains("readlink /proc/1/ns/mnt"));
+    assert!(script.contains("global mount namespace mismatch"));
+    assert!(!script.contains("/proc/$audio_pid/ns/mnt"));
     assert!(script.contains("exec '/system/bin/sh'"));
     assert!(!script.contains("USB_SR_DEFER_AUDIO_RESTART"));
     assert!(!script.contains("USB_SR_RESTART_INTERFACE"));
+}
+
+#[test]
+fn global_namespace_check_does_not_require_the_audioserver_inode() {
+    let global_with_isolated_audio = NamespaceInfo {
+        self_ns: Some("mnt:[1]".into()),
+        init_ns: Some("mnt:[1]".into()),
+        audio_ns: Some("mnt:[2]".into()),
+        audio_pid: Some(42),
+    };
+    assert_eq!(global_with_isolated_audio.is_global(), Some(true));
+
+    let private_shell = NamespaceInfo {
+        self_ns: Some("mnt:[3]".into()),
+        ..global_with_isolated_audio
+    };
+    assert_eq!(private_shell.is_global(), Some(false));
 }
 
 #[test]

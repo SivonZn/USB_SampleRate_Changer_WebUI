@@ -102,6 +102,7 @@ pub(crate) fn namespace_info() -> NamespaceInfo {
     let audio_pid = audioserver_pid();
     NamespaceInfo {
         self_ns: read_namespace_link(Path::new("/proc/self/ns/mnt")),
+        init_ns: read_namespace_link(Path::new("/proc/1/ns/mnt")),
         audio_ns: audio_pid
             .and_then(|pid| read_namespace_link(Path::new(&format!("/proc/{pid}/ns/mnt")))),
         audio_pid,

@@ -32,6 +32,7 @@ export type ControllerStatus = {
   test_template?: string;
   audioserver_pid?: string;
   self_ns?: string;
+  init_ns?: string;
   audio_ns?: string;
   namespace_ok?: string;
   last_action?: string;
@@ -190,6 +191,7 @@ export function diagnosticText(result: ExecResult): string {
     .split(/\r?\n/)
     .filter((line) => !isControllerEnvelopeLine(line))
     .filter((line) => !line.startsWith("namespace verified:"))
+    .filter((line) => !line.startsWith("global namespace verified:"))
     .join("\n")
     .trim();
   const stdout = clean(result.stdout);

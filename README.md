@@ -48,7 +48,7 @@ SolidJS WebUI
   -> APatch/KernelSU root bridge (spawn, with exec fallback)
   -> usbsrctl validates the versioned command catalog
   -> render the validated shell program in memory
-  -> feed it directly to the shell, entering the audioserver mount namespace when required
+  -> feed it directly to the shell, entering the global mount namespace when required
   -> execute the selected upstream script from the module's `core/` directory
   -> record the command summary in /data/local/tmp/usb_samplerate_changer_webui/last-command.log
 ```
