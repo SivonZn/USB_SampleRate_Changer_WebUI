@@ -773,7 +773,12 @@ pub(crate) fn update_stored_settings_for_extra(
             wifi_no_restart,
         } => {
             if feature == "all" {
-                for feature in JITTER_BASE_FEATURES {
+                let features = if *enabled {
+                    JITTER_BASE_FEATURES
+                } else {
+                    JITTER_FEATURES
+                };
+                for feature in features {
                     settings
                         .jitter_values
                         .insert((*feature).to_string(), *enabled);

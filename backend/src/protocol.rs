@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use crate::android::{bluetooth_a2dp_state, namespace_info};
 use crate::catalog::{
     BIT_DEPTHS, BLUETOOTH_HAL_OPTIONS, DIAGNOSTIC_TYPES, DOCUMENTED_RATES, IO_SCHEDULERS, IO_TONES,
-    JITTER_BASE_FEATURES, JITTER_FEATURES, POLICIES, RESAMPLER_BYPASSES, RESAMPLER_MODES,
-    RESAMPLER_PRESETS, RESAMPLER_PRESET_GROUPS,
+    JITTER_FEATURES, POLICIES, RESAMPLER_BYPASSES, RESAMPLER_MODES, RESAMPLER_PRESETS,
+    RESAMPLER_PRESET_GROUPS,
 };
 use crate::domain::{Settings, StoredSettings};
 use crate::paths::{log_root, CORE_DIR, LOG_ROOT};
@@ -624,7 +624,7 @@ fn render_schema_json(module_dir: &Path) -> String {
     );
     out.push_str(",\"wifi_no_restart\":{\"supported\":true,\"default\":false,\"label_key\":\"jitter.wifi.no_restart.label\",\"description_key\":\"jitter.wifi.no_restart.description\"}");
     out.push_str(",\"reset_features\":[");
-    json_string_array(&mut out, JITTER_BASE_FEATURES);
+    json_string_array(&mut out, JITTER_FEATURES);
     out.push_str("],\"operations\":{\"status\":true,\"set\":true,\"reset\":true}}");
 
     out.push_str(",\"diagnostics\":{");

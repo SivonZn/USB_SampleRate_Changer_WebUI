@@ -209,14 +209,22 @@ impl ExtraAction {
                 tone,
                 wifi_no_restart,
             } => {
-                let flag = if feature == "wifi" && *enabled && *wifi_no_restart {
-                    "--wifi-no-restart".to_string()
+                let mut args = if feature == "wifi" && *enabled && *wifi_no_restart {
+                    vec!["--wifi-no-restart".to_string()]
+                } else if feature == "all" && !*enabled {
+                    // Upstream deliberately excludes battery and effect from
+                    // ++all. A controller-level reset treats their disabled
+                    // state as the default and restores all jitter features.
+                    vec![
+                        "++all".to_string(),
+                        "++battery".to_string(),
+                        "++effect".to_string(),
+                    ]
                 } else if feature == "all" {
-                    if *enabled { "--all" } else { "++all" }.to_string()
+                    vec!["--all".to_string()]
                 } else {
-                    format!("{}{}", if *enabled { "--" } else { "++" }, feature)
+                    vec![format!("{}{}", if *enabled { "--" } else { "++" }, feature)]
                 };
-                let mut args = vec![flag];
                 if feature == "io" && *enabled {
                     args.push(scheduler.clone().unwrap_or_else(|| "*".to_string()));
                     args.push(tone.clone().unwrap_or_else(|| "medium".to_string()));
@@ -273,7 +281,9 @@ impl ExtraAction {
             | Self::ResamplerCustom { .. }
             | Self::UsbPeriodReset
             | Self::UsbPeriodSet { .. } => true,
-            Self::JitterSet { feature, .. } => feature == "effect",
+            Self::JitterSet {
+                enabled, feature, ..
+            } => feature == "effect" || (feature == "all" && !*enabled),
             Self::ResamplerStatus
             | Self::UsbPeriodStatus
             | Self::JitterStatus

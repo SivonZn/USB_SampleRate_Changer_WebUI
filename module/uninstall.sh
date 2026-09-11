@@ -19,8 +19,6 @@ if [ -x "$MODDIR/usbsrctl" ]; then
     run_reset extra resampler reset
     run_reset extra usb-period reset
     run_reset extra jitter disable all
-    run_reset extra jitter disable battery
-    run_reset extra jitter disable effect
     run_reset reset
 fi
 

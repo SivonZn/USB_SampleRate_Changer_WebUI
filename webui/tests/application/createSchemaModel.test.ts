@@ -71,6 +71,8 @@ describe("schema model", () => {
     expect(model.toolAvailable("bluetoothHal")).toBe(true);
     expect(model.toolOperation("resampler", "reset")).toBe(true);
     expect(model.diagnosticsCompleteOutput()).toBe(true);
+    expect([...model.jitterResetFeatures()]).toContain("battery");
+    expect([...model.jitterResetFeatures()]).toContain("effect");
     await model.load();
     expect(model.policyOptions().length).toBeGreaterThan(1);
   });

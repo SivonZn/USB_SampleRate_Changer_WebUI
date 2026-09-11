@@ -376,6 +376,7 @@ fn renders_complete_extras_schema_capabilities() {
     }
     assert!(!schema.contains("\"value\":\"default\""));
     assert!(!schema.contains("resampler.preset.default.label"));
+    assert!(schema.contains("\"wifi\",\"battery\",\"effect\"],\"operations\""));
 }
 
 #[test]
@@ -972,6 +973,11 @@ fn validates_usb_period_and_jitter_parameters() {
         extra(&["jitter", "enable", "wifi", "no-restart"]).script_args(),
         ["--wifi-no-restart", "--status"]
     );
+    assert_eq!(
+        extra(&["jitter", "disable", "all"]).script_args(),
+        ["++all", "++battery", "++effect", "--status"]
+    );
+    assert!(extra(&["jitter", "disable", "all"]).requires_audio_restart());
 }
 
 #[test]
@@ -1433,7 +1439,7 @@ fn extra_updates_every_tool_and_tuning_selection() {
         &mut settings,
         &extra(&["jitter", "disable", "all"])
     ));
-    for feature in crate::catalog::JITTER_BASE_FEATURES {
+    for feature in crate::catalog::JITTER_FEATURES {
         assert_eq!(settings.jitter_values.get(*feature), Some(&false));
         assert_eq!(settings.jitter_configured.get(*feature), Some(&false));
     }

@@ -177,7 +177,7 @@ export function createSchemaModel(controller: Pick<ControllerClient, "schema">):
     jitterFeatureCapability,
     jitterHighRiskFeatures: () => new Set(schemaFeatures(schema()).filter(({ highRisk }) => highRisk).map(({ value }) => value)),
     jitterAudioRestartFeatures: () => new Set(schemaFeatures(schema()).filter(({ requiresAudioRestart }) => requiresAudioRestart).map(({ value }) => value)),
-    jitterResetFeatures: () => new Set(schema()?.extras.jitterResetFeatures ?? fallbackJitter.slice(0, 9).map(({ value }) => value)),
+    jitterResetFeatures: () => new Set(schema()?.extras.jitterResetFeatures ?? fallbackJitter.map(({ value }) => value)),
     jitterFeatureLabelKey: (feature) => schemaFeatures(schema()).find(({ value }) => value === feature)?.labelKey ?? `jitter.${feature}.label`,
     sampleRateLimit: () => schema()?.limits.sampleRate ?? fallbackLimits.sampleRate,
     usbPeriodLimit: () => schema()?.limits.usbPeriod ?? fallbackLimits.usbPeriod,
