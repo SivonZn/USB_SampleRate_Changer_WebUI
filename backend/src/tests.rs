@@ -1980,3 +1980,29 @@ fn limited_capabilities_block_writes_but_allow_managed_cleanup_and_all_jitter() 
     assert!(script.contains("'--reset'"));
     assert!(!script.contains("'--all'"));
 }
+
+#[test]
+fn aidl_resampler_and_effect_use_only_the_default_audio_restart() {
+    let caps = crate::capabilities::DeviceCapabilities::limited("aidl", "test");
+    let mut actions = vec![extra(&["resampler", "reset"]), extra(&["resampler", "179-408-99"]),
+        extra(&["resampler", "custom", "none", "cheat", "179", "408", "99"]),
+        extra(&["jitter", "enable", "effect"]), extra(&["jitter", "disable", "all"])];
+    let restart_path = module_fixture().join("core/extras/reload-audio-servers.sh");
+    let expected = format!("'/system/bin/sh' {}", shell_quote(&restart_path.to_string_lossy()));
+    for action in &actions {
+        assert!(caps.allows_extra(action));
+        let script = module_fixture().join("core/extras").join(action.script());
+        let restart = render_extra_restart_script(&script, action).unwrap();
+        assert!(restart.ends_with(&format!("exec {expected}\n")));
+        assert!(!restart.contains("--all"));
+        assert!(!restart.contains("--bluetooth-hal"));
+    }
+    for feature in JITTER_FEATURES.iter().filter(|name| **name != "effect") {
+        let action = extra(&["jitter", "enable", feature]);
+        assert!(!action.requires_audio_restart());
+    }
+    actions.retain(|action| !matches!(action, ExtraAction::JitterSet { feature, .. } if feature == "all"));
+    let plan = actions.into_iter().map(ReapplyAction::Extra).collect::<Vec<_>>();
+    let commands = reapply_command_summaries(&plan, &module_fixture());
+    assert_eq!(commands.iter().filter(|command| command.contains("reload-audio-servers.sh")).collect::<Vec<_>>(), vec![&expected]);
+}

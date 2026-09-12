@@ -74,3 +74,16 @@ it("never exposes write controls while schema is missing or malformed", async ()
   expect(host.querySelectorAll(".extra-grid > .card")).toHaveLength(0);
   expect(host.querySelectorAll('.jitter-grid input[type="checkbox"]')).toHaveLength(0);
 });
+
+it("asks for reinstall when the device record is missing while keeping restricted cards hidden", async () => {
+  vi.spyOn(controllerClient, "status").mockResolvedValue({ result, status: {} });
+  const schema = deviceSchema(true);
+  schema.device!.reason = "device_capabilities_missing";
+  vi.spyOn(controllerClient, "schema").mockResolvedValue({ result, schema });
+  const host = document.createElement("div");
+  document.body.append(host);
+  dispose = render(() => <App />, host);
+  await vi.waitFor(() => expect(host.textContent).toContain("Reinstall the module"));
+  expect(host.querySelector('[data-page="policy"]')).toBeNull();
+  expect(host.querySelectorAll(".extra-grid > .card")).toHaveLength(2);
+});

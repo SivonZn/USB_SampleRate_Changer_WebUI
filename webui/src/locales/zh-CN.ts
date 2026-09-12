@@ -18,6 +18,7 @@ export const chinese = {
   "app.logs.readFailed": "无法读取持久化执行日志（退出码 {code}）。",
   "app.logs.title": "执行日志",
   "app.refresh": "刷新状态",
+  "app.capabilities.reinstall": "设备能力记录缺失、损坏或无法保存，受限功能保持隐藏。请重新安装模块以重新检测设备。",
   "app.status.readFailed": "读取状态失败",
   "app.status.updated": "状态已更新",
   "app.subtitle": "Root audio policy",

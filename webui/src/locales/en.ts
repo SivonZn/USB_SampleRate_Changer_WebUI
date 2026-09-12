@@ -16,6 +16,7 @@ export const english = {
   "app.logs.readFailed": "Unable to read the persisted execution log (exit code {code}).",
   "app.logs.title": "Execution log",
   "app.refresh": "Refresh status",
+  "app.capabilities.reinstall": "Device capability information is missing, damaged or could not be saved. Restricted controls remain hidden. Reinstall the module to detect this device again.",
   "app.status.readFailed": "Failed to read status",
   "app.status.updated": "Status updated",
   "app.subtitle": "Root audio policy",

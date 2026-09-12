@@ -8,8 +8,8 @@ use crate::process::execute_output;
 
 /// Device facts are separate from the user's strictly versioned settings.
 /// The installer writes a probe result without touching user settings.
-/// Missing records use live detection; a record can restrict, never grant,
-/// access to the legacy XML/HAL controls.
+/// Resolved installation records are authoritative until the next install.
+/// Only a valid unknown record may be probed and resolved after boot.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct DeviceCapabilities {
     pub(crate) audio_hal: String,
@@ -81,22 +81,56 @@ fn query(program: &str, args: &[&str]) -> Option<String> {
     Some(String::from_utf8_lossy(&result.output.stdout).into_owned())
 }
 
-pub(crate) fn detect(module_dir: &Path) -> DeviceCapabilities {
+fn read_record(module_dir: &Path) -> Result<DeviceCapabilities, &'static str> {
     match fs::read_to_string(module_dir.join("device-capabilities.conf")) {
-        Ok(record) => match record_restriction(&record) {
-            Ok(Some(caps)) if caps.audio_hal != "unknown" && record_is_current(&record) => {
-                return caps
-            }
-            Ok(Some(_)) => {} // Recovery/early-boot probes and OTA records are advisory.
-            Ok(None) => {}    // Full mode must still be established from live evidence.
-            Err(()) => {
-                return DeviceCapabilities::limited("unknown", "invalid_device_capabilities")
-            }
-        },
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(_) => return DeviceCapabilities::limited("unknown", "device_capabilities_unreadable"),
+        Ok(record) => parse_record(&record).map_err(|_| "invalid_device_capabilities"),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Err("device_capabilities_missing")
+        }
+        Err(_) => Err("device_capabilities_unreadable"),
     }
-    detect_live()
+}
+
+pub(crate) fn detect(module_dir: &Path) -> DeviceCapabilities {
+    let caps = match read_record(module_dir) {
+        Ok(caps) => caps,
+        Err(reason) => return DeviceCapabilities::limited("unknown", reason),
+    };
+    if caps.audio_hal != "unknown" {
+        return caps;
+    }
+    // No sleeps or recurring checks: an unresolved installation can recover
+    // on boot or on the next controller request once AudioService is ready.
+    let ready = query("getprop", &["sys.boot_completed"]).is_some_and(|v| v.trim() == "1")
+        && query("getprop", &["init.svc.audioserver"]).is_some_and(|v| v.trim() == "running");
+    if !ready {
+        return caps;
+    }
+    // Separate from the audio mutation lock: reapply may already own that lock.
+    let Ok(_lock) =
+        crate::operation::acquire_operation_lock_at(&module_dir.join(".device-capabilities.lock"))
+    else {
+        return DeviceCapabilities::limited("unknown", "device_capabilities_retry_pending");
+    };
+    match read_record(module_dir) {
+        Ok(current) if current.audio_hal != "unknown" => return current,
+        Err(reason) => return DeviceCapabilities::limited("unknown", reason),
+        _ => {}
+    }
+    let resolved = detect_live();
+    if resolved.audio_hal == "unknown" {
+        return resolved;
+    }
+    if crate::paths::atomic_write(
+        &module_dir.join("device-capabilities.conf"),
+        render_record(&resolved).as_bytes(),
+        0o644,
+    )
+    .is_err()
+    {
+        return DeviceCapabilities::limited("unknown", "device_capabilities_save_failed");
+    }
+    resolved
 }
 
 pub(crate) fn detect_live() -> DeviceCapabilities {
@@ -119,7 +153,7 @@ pub(crate) fn detect_live() -> DeviceCapabilities {
 
 /// Installation record contract. Strict parsing prevents a
 /// damaged restriction file from accidentally enabling controls. No shell eval.
-fn record_restriction(record: &str) -> Result<Option<DeviceCapabilities>, ()> {
+fn parse_record(record: &str) -> Result<DeviceCapabilities, ()> {
     let mut entries = std::collections::BTreeMap::new();
     for line in record
         .lines()
@@ -132,6 +166,7 @@ fn record_restriction(record: &str) -> Result<Option<DeviceCapabilities>, ()> {
             "version"
                 | "audio_hal"
                 | "policy_xml_supported"
+                // Accepted for old installations, never compared or re-emitted.
                 | "build_fingerprint"
                 | "vendor_fingerprint"
                 | "reason"
@@ -152,46 +187,35 @@ fn record_restriction(record: &str) -> Result<Option<DeviceCapabilities>, ()> {
         return Err(());
     }
     if matches!(hal, "aidl" | "mixed" | "unknown") || xml == "0" {
-        Ok(Some(DeviceCapabilities::limited(
+        Ok(DeviceCapabilities::limited(
             hal,
-            "device_record_restricts_legacy_controls",
-        )))
+            entries
+                .get("reason")
+                .copied()
+                .filter(|reason| !reason.is_empty())
+                .unwrap_or("device_record_restricts_legacy_controls"),
+        ))
     } else {
-        Ok(None)
+        Ok(DeviceCapabilities {
+            audio_hal: hal.into(),
+            legacy_controls: true,
+            reason: String::new(),
+        })
     }
 }
 
 /// Read-only installer probe: no state layout, policy generation or restart.
 pub(crate) fn installation_record() -> String {
-    let caps = detect_live();
-    let build = query("getprop", &["ro.build.fingerprint"]).unwrap_or_default();
-    let vendor = query("getprop", &["ro.vendor.build.fingerprint"]).unwrap_or_default();
-    format!("version=1\naudio_hal={}\npolicy_xml_supported={}\nreason={}\nbuild_fingerprint={}\nvendor_fingerprint={}\n",
-        caps.audio_hal, if caps.legacy_controls { "1" } else { "0" }, caps.reason,
-        build.replace(['\n', '\r'], ""), vendor.replace(['\n', '\r'], ""))
+    render_record(&detect_live())
 }
 
-fn record_is_current(record: &str) -> bool {
-    record_matches_fingerprints(record, |property| query("getprop", &[property]))
-}
-
-fn record_matches_fingerprints(record: &str, mut read: impl FnMut(&str) -> Option<String>) -> bool {
-    for (key, property) in [
-        ("build_fingerprint", "ro.build.fingerprint"),
-        ("vendor_fingerprint", "ro.vendor.build.fingerprint"),
-    ] {
-        let saved = record
-            .lines()
-            .map(str::trim)
-            .filter_map(|line| line.split_once('='))
-            .find_map(|(name, value)| (name == key).then_some(value));
-        if let Some(saved) = saved.filter(|value| !value.is_empty()) {
-            if !read(property).is_some_and(|current| current.trim() == saved) {
-                return false;
-            }
-        }
-    }
-    true
+pub(crate) fn render_record(caps: &DeviceCapabilities) -> String {
+    format!(
+        "version=1\naudio_hal={}\npolicy_xml_supported={}\nreason={}\n",
+        caps.audio_hal,
+        if caps.legacy_controls { "1" } else { "0" },
+        caps.reason
+    )
 }
 
 #[cfg(test)]
@@ -218,33 +242,23 @@ mod tests {
         );
     }
     #[test]
-    fn ota_and_unavailable_fingerprints_require_a_live_probe() {
-        let record = "version=1\naudio_hal=aidl\npolicy_xml_supported=0\nbuild_fingerprint=build-a\nvendor_fingerprint=vendor-a\nreason=aidl\n";
-        assert!(record_restriction(record).unwrap().is_some());
-        assert!(record_matches_fingerprints(record, |name| Some(
-            if name == "ro.build.fingerprint" {
-                "build-a\n"
-            } else {
-                "vendor-a\n"
-            }
-            .into()
-        )));
-        assert!(!record_matches_fingerprints(record, |_| Some(
-            "updated".into()
-        )));
-        assert!(!record_matches_fingerprints(record, |_| None));
+    fn old_fingerprint_fields_are_accepted_but_ignored() {
+        let record = "version=1\naudio_hal=hidl\npolicy_xml_supported=1\nbuild_fingerprint=build-a\nvendor_fingerprint=vendor-a\nreason=\n";
+        let caps = parse_record(record).unwrap();
+        assert!(caps.legacy_controls);
+        assert!(!render_record(&caps).contains("fingerprint"));
     }
     #[test]
-    fn records_only_restrict_and_are_strict() {
+    fn records_preserve_full_and_limited_modes_and_are_strict() {
         assert!(
-            record_restriction("version=1\naudio_hal=aidl\npolicy_xml_supported=1\n")
+            !parse_record("version=1\naudio_hal=aidl\npolicy_xml_supported=1\n")
                 .unwrap()
-                .is_some()
+                .legacy_controls
         );
         assert!(
-            record_restriction("version=1\naudio_hal=hidl\npolicy_xml_supported=1\n")
+            parse_record("version=1\naudio_hal=hidl\npolicy_xml_supported=1\n")
                 .unwrap()
-                .is_none()
+                .legacy_controls
         );
         for bad in [
             "",
@@ -252,7 +266,7 @@ mod tests {
             "version=1\nversion=1\naudio_hal=hidl\npolicy_xml_supported=1",
             "version=1\naudio_hal=aidl\npolicy_xml_supported=yes",
         ] {
-            assert!(record_restriction(bad).is_err());
+            assert!(parse_record(bad).is_err());
         }
     }
 }

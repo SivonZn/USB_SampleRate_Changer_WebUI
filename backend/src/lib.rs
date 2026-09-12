@@ -65,6 +65,10 @@ fn run(args: &[String]) -> Result<i32, String> {
         print!("{}", capabilities::installation_record());
         return Ok(0);
     }
+    if args.len() == 2 && args[1] == "_resolve-device" {
+        print!("{}", capabilities::render_record(&capabilities::detect(&module_dir()?)));
+        return Ok(0);
+    }
     // Internal entry point runs under the outer controller's lock and mount
     // namespace guard. It must not acquire that lock recursively.
     if args.get(1).map(String::as_str) == Some("_dynamic-direct") {

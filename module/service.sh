@@ -24,8 +24,10 @@ chmod 0700 "$LOG_ROOT"
         i=$((i + 1))
     done
     [ "$(getprop init.svc.audioserver)" = "running" ] || exit 0
+    [ -x "$MODDIR/usbsrctl" ] || exit 0
+    # Resolve only an unknown installation record, independently of boot reapply.
+    "$MODDIR/usbsrctl" _resolve-device >/dev/null 2>&1 || true
     [ -r "$SETTINGS" ] || exit 0
     grep -q '^auto_reapply=1$' "$SETTINGS" || exit 0
-    [ -x "$MODDIR/usbsrctl" ] || exit 0
     "$MODDIR/usbsrctl" reapply >>"$LOG_ROOT/boot-reapply.log" 2>&1 || true
 ) &

@@ -32,6 +32,9 @@ export function ToolsPage(props: {
             <div class="notice danger-notice status-health"><strong>{props.tx("policy.status.degraded")}</strong><span>{props.status?.system.stateDegradedReason || props.tx("policy.status.degradedUnknown")}</span></div>
           </Show>
         </Show>
+        <Show when={["device_capabilities_missing", "invalid_device_capabilities", "device_capabilities_unreadable", "device_capabilities_save_failed"].includes(props.schema.schema()?.device?.reason ?? "")}>
+          <div class="notice status-health">{props.tx("app.capabilities.reinstall")}</div>
+        </Show>
         <Show when={!props.schema.schema()}><div class="notice status-health">{props.tx("app.status.readFailed")}</div></Show>
         <section class="grid two-col extra-grid">
           <Show when={props.schema.toolAvailable("bluetoothHal")}><BluetoothHalCard value={props.model.bluetoothHal()} busy={props.model.busy()} canApply={props.schema.toolOperation("bluetoothHal", "set")} toolAction={props.model.toolAction()} language={props.language} tx={props.tx} options={props.schema.bluetoothHalOptions()} onChange={props.model.setBluetoothHal} onApply={() => void props.model.applyBluetoothHal()} /></Show>

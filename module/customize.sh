@@ -23,7 +23,7 @@ fi
 set_perm "$CAPABILITY_TEMP" 0 0 0644
 mv -f "$CAPABILITY_TEMP" "$CAPABILITY_FILE" || abort "! Cannot save device capabilities"
 if grep -q '^policy_xml_supported=1$' "$CAPABILITY_FILE"; then
-    ui_print "- Traditional XML controls available (rechecked at runtime)"
+    ui_print "- Traditional XML controls available (installation result saved)"
 else
     ui_print "- Limited mode: resampler, diagnostics and all jitter features"
     ui_print "- Policy, Bluetooth HAL switching and USB period are hidden"
