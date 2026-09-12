@@ -62,14 +62,15 @@ describe("schema model", () => {
     await model.load();
     expect(model.policyOptions().map(({ value }) => value)).toEqual(["offload-direct", "offload-direct-dynamic"]);
   });
-  it("keeps complete static fallbacks until a valid contract is loaded", async () => {
+  it("keeps writes unavailable until a valid contract is loaded", async () => {
     const model = createSchemaModel({
       schema: vi.fn().mockResolvedValue({ result: { code: 0, stdout: "", stderr: "" } })
     });
 
     expect(model.policyOptions().length).toBeGreaterThan(1);
-    expect(model.toolAvailable("bluetoothHal")).toBe(true);
-    expect(model.toolOperation("resampler", "reset")).toBe(true);
+    expect(model.toolAvailable("bluetoothHal")).toBe(false);
+    expect(model.policyAvailable()).toBe(false);
+    expect(model.toolOperation("resampler", "reset")).toBe(false);
     expect(model.diagnosticsCompleteOutput()).toBe(true);
     expect([...model.jitterResetFeatures()]).toContain("battery");
     expect([...model.jitterResetFeatures()]).toContain("effect");
@@ -102,4 +103,22 @@ describe("schema model", () => {
     expect([...model.jitterResetFeatures()]).toEqual(["danger", "io"]);
     expect(model.jitterFeatureLabelKey("danger")).toBe("jitter.danger.label");
   });
+});
+
+it("preserves empty capability option lists and revokes access after a failed refresh", async () => {
+  const schema = structuredClone(dynamicSchema);
+  schema.policy = { available: false, default: "auto", options: [] };
+  schema.switches = [];
+  schema.extras.jitterFeatures = [];
+  const fetch = vi.fn().mockResolvedValueOnce({ schema }).mockRejectedValueOnce(new Error("offline"));
+  const model = createSchemaModel({ schema: fetch });
+  await model.load();
+  expect(model.policyAvailable()).toBe(false);
+  expect(model.policyOptions()).toEqual([]);
+  expect(model.policySwitchOptions()).toEqual([]);
+  expect(model.jitterFeatures()).toEqual([]);
+  expect(model.toolOperation("resampler", "set_preset")).toBe(true);
+  await model.load();
+  expect(model.toolOperation("resampler", "set_preset")).toBe(false);
+  expect(model.toolAvailable("bluetoothHal")).toBe(false);
 });

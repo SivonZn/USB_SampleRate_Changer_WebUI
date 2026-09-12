@@ -50,6 +50,7 @@ export type CreatePolicyModelOptions = {
   schedule?: (callback: () => void, delayMs: number) => ScheduledTask;
   cancelSchedule?: (task: ScheduledTask) => void;
   sampleRateLimit?: Accessor<NumericRange>;
+  available?: Accessor<boolean>;
 };
 
 const EMPTY_STATUS: DeviceStatus = {
@@ -111,6 +112,7 @@ export function createPolicyModel(options: CreatePolicyModelOptions): PolicyPage
   }
 
   async function apply() {
+    if (options.available?.() === false) return;
     const current = settings();
     const validation = validatePolicySettings(current, options.sampleRateLimit?.());
     if (!validation.valid) {
@@ -121,6 +123,7 @@ export function createPolicyModel(options: CreatePolicyModelOptions): PolicyPage
     await options.operations.runExclusive("policy.apply", async () => {
       try {
         if (!await options.a2dp.confirmBeforeMutation()) return;
+        if (options.available?.() === false) return;
 
         options.notifications.info("policy.apply.progress");
         const result = await options.controller.apply(current);
@@ -147,12 +150,13 @@ export function createPolicyModel(options: CreatePolicyModelOptions): PolicyPage
   }
 
   async function reset() {
+    if (options.available?.() === false) return;
     const accepted = await options.confirmations.confirm({
       title: "policy.reset.title",
       message: "policy.reset.message",
       confirmLabel: "common.confirmReset"
     });
-    if (!accepted) return;
+    if (!accepted || options.available?.() === false) return;
 
     await options.operations.runExclusive("policy.reset", async () => {
       options.notifications.info("policy.reset.progress");

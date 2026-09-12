@@ -1,4 +1,4 @@
-import { For, onMount, type Accessor } from "solid-js";
+import { createMemo, For, Show, onMount, type Accessor } from "solid-js";
 import type { Language } from "../i18n";
 import { translate, translateRuntime } from "../i18n";
 import {
@@ -70,7 +70,8 @@ export function App() {
   language = settingsModel.language;
   const schemaModel = createSchemaModel(controllerClient);
 
-  const navigation = createPageNavigation();
+  const visiblePages = createMemo(() => pageItems.filter((item) => item.id !== "policy" || schemaModel.policyAvailable()));
+  const navigation = createPageNavigation({ pages: () => visiblePages().map(({ id }) => id), initialPage: "tools" });
   overlays = createOverlayManager({
     activePage: navigation.activePage,
     confirmOpen: () => confirmations.request() !== undefined,
@@ -124,9 +125,11 @@ export function App() {
     confirmations,
     a2dp,
     statusCoordinator,
-    sampleRateLimit: schemaModel.sampleRateLimit
+    sampleRateLimit: schemaModel.sampleRateLimit,
+    available: schemaModel.policyAvailable
   });
   toolsModel = createToolsModel({
+    canOperate: schemaModel.toolOperation,
     controller: controllerClient,
     operations,
     notifications,
@@ -140,6 +143,7 @@ export function App() {
     }
   });
   tuningModel = createTuningModel({
+    canOperate: (operation) => schemaModel.toolOperation("jitter", operation),
     controller: controllerClient,
     operations,
     notifications,
@@ -157,7 +161,12 @@ export function App() {
   async function refresh(showSuccess = true) {
     await operations.runExclusive("refresh", async () => {
       try {
+        const schemaLoaded = await schemaModel.load();
         await statusCoordinator.refresh("all");
+        if (!schemaLoaded) {
+          notifications.error("app.status.readFailed");
+          return;
+        }
         if (showSuccess) notifications.success("app.status.updated");
       } catch (error) {
         notifications.error(error);
@@ -214,16 +223,16 @@ export function App() {
 
         <div class="page-viewport" ref={navigation.setViewport} onTouchStart={navigation.handleInputTouchStart} onTouchEnd={navigation.handleInputTouchEnd} onTouchCancel={navigation.handleInputTouchCancel}>
           <div class="page-track">
-            <PolicyPage model={policyModel} language={settingsModel.language()} tx={settingsModel.tx} policyOptions={schemaModel.policyOptions()} rateOptions={schemaModel.rateOptions()} bitDepthOptions={schemaModel.bitDepthOptions()} switchOptions={schemaModel.policySwitchOptions()} sampleRateLimit={schemaModel.sampleRateLimit()} onOpenHelp={() => overlays.openOverlay("policy-help")} />
-            <ToolsPage model={toolsModel} language={settingsModel.language()} tx={settingsModel.tx} schema={schemaModel} />
+            <Show when={schemaModel.policyAvailable()}><PolicyPage model={policyModel} language={settingsModel.language()} tx={settingsModel.tx} policyOptions={schemaModel.policyOptions()} rateOptions={schemaModel.rateOptions()} bitDepthOptions={schemaModel.bitDepthOptions()} switchOptions={schemaModel.policySwitchOptions()} sampleRateLimit={schemaModel.sampleRateLimit()} onOpenHelp={() => overlays.openOverlay("policy-help")} /></Show>
+            <ToolsPage status={statusCoordinator.status()} model={toolsModel} language={settingsModel.language()} tx={settingsModel.tx} schema={schemaModel} />
             <TuningPage model={tuningModel} language={settingsModel.language()} tx={settingsModel.tx} schema={schemaModel} />
             <SettingsPage model={settingsModel} version={WEBUI_VERSION} />
           </div>
         </div>
 
-        <nav class="page-navigation" classList={{ dragging: navigation.pageDragging() }} style={{ "--page-progress": navigation.pageProgress() }} aria-label={settingsModel.tx("nav.main")}>
+        <nav class="page-navigation" classList={{ dragging: navigation.pageDragging() }} style={{ "--page-progress": navigation.pageProgress(), "--page-count": visiblePages().length }} aria-label={settingsModel.tx("nav.main")}>
           <span class="page-nav-indicator" aria-hidden="true" />
-          <For each={pageItems}>{(item, index) => {
+          <For each={visiblePages()}>{(item, index) => {
             const PageIcon = item.icon;
             return <button class="page-nav-item" classList={{ active: navigation.activePage() === item.id }} aria-current={navigation.activeIndex() === index() ? "page" : undefined} onClick={() => navigation.activatePage(item.id)}><PageIcon /><span>{settingsModel.tx(item.label)}</span></button>;
           }}</For>

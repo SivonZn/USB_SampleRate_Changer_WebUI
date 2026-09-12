@@ -5,6 +5,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use crate::android::{bluetooth_a2dp_state, namespace_info};
+use crate::capabilities::{detect, DeviceCapabilities};
 use crate::catalog::{
     BIT_DEPTHS, BLUETOOTH_HAL_OPTIONS, DIAGNOSTIC_TYPES, DOCUMENTED_RATES, IO_SCHEDULERS, IO_TONES,
     JITTER_FEATURES, POLICIES, RESAMPLER_BYPASSES, RESAMPLER_MODES, RESAMPLER_PRESETS,
@@ -70,6 +71,17 @@ pub(crate) fn print_status(module_dir: &Path) {
         print!("{last_status}");
     }
     print_templates(module_dir);
+    print_device_capabilities(&detect(module_dir));
+}
+
+
+fn print_device_capabilities(caps: &DeviceCapabilities) {
+    println!("audio_hal={}", caps.audio_hal);
+    println!("capability_mode={}", if caps.legacy_controls { "full" } else { "limited" });
+    println!("capability_reason={}", caps.reason);
+    println!("policy_available={}", bool_number(caps.legacy_controls));
+    println!("bluetooth_hal_available={}", bool_number(caps.legacy_controls));
+    println!("usb_period_available={}", bool_number(caps.legacy_controls));
 }
 
 fn print_stored_settings(settings: &StoredSettings) {
@@ -169,6 +181,12 @@ fn print_settings(settings: &Settings) {
 }
 
 pub(crate) fn print_schema(module_dir: &Path) {
+    let caps = detect(module_dir);
+    print_device_capabilities(&caps);
+    if !caps.legacy_controls {
+        println!("schema_version=1");
+        return;
+    }
     println!("schema_version=1");
     println!("custom_rate_min=44100");
     println!("custom_rate_max=768000");
@@ -207,10 +225,14 @@ pub(crate) fn print_schema_json(module_dir: &Path) {
 
 #[cfg(test)]
 pub(crate) fn render_schema_json_for_test(module_dir: &Path) -> String {
-    render_schema_json(module_dir)
+    render_schema_json_with_capabilities(module_dir, &DeviceCapabilities::from_evidence(true, Some("")))
 }
 
 fn render_schema_json(module_dir: &Path) -> String {
+    render_schema_json_with_capabilities(module_dir, &detect(module_dir))
+}
+
+pub(crate) fn render_schema_json_with_capabilities(module_dir: &Path, caps: &DeviceCapabilities) -> String {
     let mut out = String::with_capacity(16 * 1024);
     out.push('{');
     json_number(&mut out, "schema_version", 1);
@@ -225,7 +247,14 @@ fn render_schema_json(module_dir: &Path) -> String {
         &upstream_script_version(module_dir),
     );
     out.push_str(",\"capabilities\":{");
-    out.push_str("\"json_schema\":true,\"audio_restart_interface\":true,\"batch_reapply\":true}");
+    out.push_str("\"json_schema\":true,\"audio_restart_interface\":true,\"batch_reapply\":true,\"device_capabilities\":true}");
+    out.push_str(",\"device\":{");
+    json_string_field(&mut out, "audio_hal", &caps.audio_hal);
+    out.push(',');
+    json_string_field(&mut out, "mode", if caps.legacy_controls { "full" } else { "limited" });
+    out.push(',');
+    json_string_field(&mut out, "reason", &caps.reason);
+    out.push('}');
 
     out.push_str(",\"limits\":{");
     out.push_str("\"sample_rate\":{\"min\":44100,\"max\":768000,\"integer\":true}");
@@ -237,8 +266,10 @@ fn render_schema_json(module_dir: &Path) -> String {
     out.push_str(",\"cheat_percent\":{\"min\":1,\"max\":200,\"step\":1}}");
     out.push('}');
 
-    out.push_str(",\"policy\":{\"default\":\"auto\",\"options\":[");
-    for (index, (value, flag, _label)) in POLICIES.iter().enumerate() {
+    out.push_str(",\"policy\":{");
+    write!(out, "\"available\":{},", caps.legacy_controls).unwrap();
+    out.push_str("\"default\":\"auto\",\"options\":[");
+    for (index, (value, flag, _label)) in POLICIES.iter().filter(|_| caps.legacy_controls).enumerate() {
         if index > 0 {
             out.push(',');
         }
@@ -267,7 +298,7 @@ fn render_schema_json(module_dir: &Path) -> String {
     out.push_str("]}");
 
     out.push_str(",\"sample_rates\":[");
-    for (index, (value, _label)) in DOCUMENTED_RATES.iter().enumerate() {
+    for (index, (value, _label)) in DOCUMENTED_RATES.iter().filter(|_| caps.legacy_controls).enumerate() {
         if index > 0 {
             out.push(',');
         }
@@ -282,7 +313,7 @@ fn render_schema_json(module_dir: &Path) -> String {
     out.push(']');
 
     out.push_str(",\"bit_depths\":[");
-    for (index, (value, _label)) in BIT_DEPTHS.iter().enumerate() {
+    for (index, (value, _label)) in BIT_DEPTHS.iter().filter(|_| caps.legacy_controls).enumerate() {
         if index > 0 {
             out.push(',');
         }
@@ -305,6 +336,7 @@ fn render_schema_json(module_dir: &Path) -> String {
         ("test", "--test"),
     ]
     .iter()
+    .filter(|_| caps.legacy_controls)
     .enumerate()
     {
         if index > 0 {
@@ -328,7 +360,7 @@ fn render_schema_json(module_dir: &Path) -> String {
 
     out.push_str(",\"extras\":{");
     out.push_str("\"bluetooth_hal\":{");
-    out.push_str("\"available\":true,\"tool\":\"bluetooth-hal\",");
+    write!(out, "\"available\":{},\"tool\":\"bluetooth-hal\",", caps.legacy_controls).unwrap();
     json_string_field(&mut out, "label_key", "tools.bluetooth_hal.label");
     out.push(',');
     json_string_field(
@@ -388,7 +420,7 @@ fn render_schema_json(module_dir: &Path) -> String {
         out.push_str(if *value == "offload" { "true" } else { "false" });
         out.push('}');
     }
-    out.push_str("],\"operations\":{\"status\":true,\"set\":true,\"reset\":false}}");
+    write!(out, "],\"operations\":{{\"status\":true,\"set\":{},\"reset\":false}}}}", caps.legacy_controls).unwrap();
 
     out.push_str(",\"resampler\":{");
     out.push_str("\"available\":true,\"tool\":\"resampler\",");
@@ -513,7 +545,7 @@ fn render_schema_json(module_dir: &Path) -> String {
     out.push_str("},\"operations\":{\"status\":true,\"set_preset\":true,\"set_custom\":true,\"reset\":true}}");
 
     out.push_str(",\"usb_period\":{");
-    out.push_str("\"available\":true,\"tool\":\"usb-period\",");
+    write!(out, "\"available\":{},\"tool\":\"usb-period\",", caps.legacy_controls).unwrap();
     json_string_field(&mut out, "label_key", "tools.usb_period.label");
     out.push(',');
     json_string_field(&mut out, "description_key", "tools.usb_period.description");
@@ -529,7 +561,7 @@ fn render_schema_json(module_dir: &Path) -> String {
         ],
     );
     out.push(']');
-    out.push_str(",\"operations\":{\"status\":true,\"set\":true,\"reset\":true}}");
+    write!(out, ",\"operations\":{{\"status\":true,\"set\":{},\"reset\":true}}}}", caps.legacy_controls).unwrap();
     out.push_str(",\"jitter\":{");
     out.push_str("\"available\":true,\"tool\":\"jitter\",");
     json_string_field(&mut out, "label_key", "tools.jitter.label");

@@ -26,6 +26,7 @@ export type ControllerSchema = {
   apiVersion: number;
   controllerVersion?: string;
   capabilities: Readonly<Record<string, boolean>>;
+  device?: { audioHal: string; mode: "full" | "limited"; reason: string };
   limits: {
     sampleRate: NumericRange & { integer: boolean };
     usbPeriod: NumericRange;
@@ -36,7 +37,7 @@ export type ControllerSchema = {
       cheatPercent: NumericRange;
     };
   };
-  policy: { default: string; options: SchemaOption[] };
+  policy: { available?: boolean; default: string; options: SchemaOption[] };
   sampleRates: SchemaOption[];
   bitDepths: SchemaOption[];
   switches: SchemaOption[];
@@ -133,7 +134,7 @@ function options(value: unknown, fallbackPrefix: string): SchemaOption[] | undef
       capabilities: Object.keys(optionCapabilities).length ? optionCapabilities : undefined
     });
   }
-  return result.length ? result : undefined;
+  return result;
 }
 
 function tool(value: unknown): SchemaToolCapability | undefined {
@@ -159,7 +160,10 @@ export function parseControllerSchema(output: string): ControllerSchema | undefi
   const halfLength = range(resamplerLimits?.half_length);
   const cutoffPercent = range(resamplerLimits?.cutoff_percent);
   const cheatPercent = range(resamplerLimits?.cheat_percent);
+  const managed = record(root?.capabilities)?.device_capabilities === true;
+  const device = record(root?.device);
   const policy = record(root?.policy);
+  const policyAvailable = policy?.available !== false;
   const policyOptions = options(policy?.options, "policy.option");
   const sampleRates = options(root?.sample_rates, "rate");
   const bitDepths = options(root?.bit_depths, "format");
@@ -186,6 +190,17 @@ export function parseControllerSchema(output: string): ControllerSchema | undefi
 
   if (!sampleRate || !usbPeriod || !stopBand || !halfLength || !cutoffPercent || !cheatPercent
       || !policy || !policyOptions || !sampleRates || !bitDepths) return undefined;
+  if (policyAvailable && (!policyOptions.length || !sampleRates.length || !bitDepths.length)) return undefined;
+  if (managed) {
+    if (!device || !text(device.audio_hal) || !["full", "limited"].includes(String(device.mode))
+        || typeof policy.available !== "boolean") return undefined;
+    for (const name of ["bluetooth_hal", "usb_period", "resampler", "jitter", "diagnostics"]) {
+      const value = record(extras?.[name]);
+      if (typeof value?.available !== "boolean" || !record(value.operations)) return undefined;
+    }
+    if (device.mode === "limited" && (policyAvailable || bluetooth?.available !== false
+        || record(extras?.usb_period)?.available !== false)) return undefined;
+  }
 
   const parsedPresets = options(resampler?.presets, "resampler.preset") ?? [];
   const customPreset = options(customResampler ? [customResampler] : undefined, "resampler.preset")?.[0];
@@ -220,12 +235,17 @@ export function parseControllerSchema(output: string): ControllerSchema | undefi
     apiVersion: 1,
     controllerVersion: text(root?.controller_version),
     capabilities: booleans(root?.capabilities),
+    device: managed ? {
+      audioHal: text(device?.audio_hal)!,
+      mode: device?.mode as "full" | "limited",
+      reason: typeof device?.reason === "string" ? device.reason : ""
+    } : undefined,
     limits: {
       sampleRate: { ...sampleRate, integer: record(limits?.sample_rate)?.integer !== false },
       usbPeriod,
       resampler: { stopBand, halfLength, cutoffPercent, cheatPercent }
     },
-    policy: { default: text(policy.default) ?? policyOptions[0].value, options: policyOptions },
+    policy: { available: policyAvailable, default: text(policy.default) ?? policyOptions[0]?.value ?? "auto", options: policyOptions },
     sampleRates,
     bitDepths,
     switches,

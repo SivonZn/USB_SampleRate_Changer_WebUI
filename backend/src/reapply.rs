@@ -55,3 +55,10 @@ pub(crate) fn build_reapply_plan(stored: &StoredSettings) -> Vec<ReapplyAction> 
     }
     plan
 }
+
+/// Keep persisted preferences intact while excluding unavailable operations.
+pub(crate) fn filter_reapply_plan(
+    plan: Vec<ReapplyAction>, caps: &crate::capabilities::DeviceCapabilities,
+) -> Vec<ReapplyAction> {
+    plan.into_iter().filter(|action| caps.allows_reapply(action)).collect()
+}

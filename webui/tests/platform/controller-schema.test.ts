@@ -105,3 +105,25 @@ describe("controller schema", () => {
     expect(parseControllerSchema("not json")).toBeUndefined();
   });
 });
+
+it("accepts a limited device with empty policy controls while retaining all supplied jitter features", () => {
+  const raw = JSON.parse(valid);
+  raw.capabilities.device_capabilities = true;
+  raw.device = { audio_hal: "aidl", mode: "limited", reason: "aidl_legacy_controls_unavailable" };
+  raw.policy = { available: false, default: "auto", options: [] };
+  raw.sample_rates = [];
+  raw.bit_depths = [];
+  raw.switches = [];
+  raw.extras.usb_period.available = false;
+  const schema = parseControllerSchema(JSON.stringify(raw));
+  expect(schema?.device?.mode).toBe("limited");
+  expect(schema?.policy.available).toBe(false);
+  expect(schema?.policy.options).toEqual([]);
+  expect(schema?.extras.tools.resampler?.available).toBe(true);
+  expect(schema?.extras.jitterFeatures.map(({ value }) => value)).toContain("effect");
+  raw.policy.available = true;
+  expect(parseControllerSchema(JSON.stringify(raw))).toBeUndefined();
+  raw.policy.available = false;
+  delete raw.extras.bluetooth_hal.available;
+  expect(parseControllerSchema(JSON.stringify(raw))).toBeUndefined();
+});

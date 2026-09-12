@@ -1,3 +1,4 @@
+import type { SchemaToolName } from "../../platform/controller-schema";
 import { createSignal, type Accessor } from "solid-js";
 import type {
   A2dpGuard,
@@ -89,6 +90,7 @@ export type ToolsPageModel = {
 
 export type ToolsModelOptions = {
   controller: ToolsController;
+  canOperate?: (tool: SchemaToolName, operation: string) => boolean;
   operations: OperationCoordinator;
   notifications: NotificationCenter;
   confirmations: ConfirmService;
@@ -211,6 +213,12 @@ export function createToolsModel(options: ToolsModelOptions): ToolsPageModel {
     execute: () => Promise<OperationAwareExecResult>,
     successMessage: string
   ): Promise<void> {
+    const permission: [SchemaToolName, string] = action === "bluetooth-hal" ? ["bluetoothHal", "set"]
+      : action === "usb-period" ? ["usbPeriod", "set"]
+      : action === "usb-period-reset" ? ["usbPeriod", "reset"]
+      : action === "resampler-reset" ? ["resampler", "reset"]
+      : ["resampler", resamplerPreset() === "custom" ? "set_custom" : "set_preset"];
+    if (options.canOperate?.(...permission) === false) return;
     await options.operations.runExclusive(operation, async () => {
       setToolAction(action);
       try {
@@ -260,6 +268,7 @@ export function createToolsModel(options: ToolsModelOptions): ToolsPageModel {
   }
 
   async function resetResampler() {
+    if (options.canOperate?.("resampler", "reset") === false) return;
     const accepted = await options.confirmations.confirm({
       title: "tools.resampler.reset.title",
       message: "tools.resampler.reset.message",
@@ -286,6 +295,7 @@ export function createToolsModel(options: ToolsModelOptions): ToolsPageModel {
   }
 
   async function resetUsbPeriod() {
+    if (options.canOperate?.("usbPeriod", "reset") === false) return;
     const accepted = await options.confirmations.confirm({
       title: "tools.usbPeriod.reset.title",
       message: "tools.usbPeriod.reset.message",
@@ -301,6 +311,7 @@ export function createToolsModel(options: ToolsModelOptions): ToolsPageModel {
   }
 
   async function runDiagnostic() {
+    if (options.canOperate?.("diagnostics", "run") === false) return;
     await options.operations.runExclusive("tools.diagnostic", async () => {
       const pending = tx("tools.diagnostics.progress");
       setDiagnosticOutput(pending);

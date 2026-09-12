@@ -1,5 +1,6 @@
 mod android;
 mod catalog;
+mod capabilities;
 mod cli;
 mod domain;
 mod dynamic_direct;
@@ -60,11 +61,17 @@ fn restore_default_sigpipe() {
 fn restore_default_sigpipe() {}
 
 fn run(args: &[String]) -> Result<i32, String> {
+    if args.len() == 2 && args[1] == "_probe-device" {
+        print!("{}", capabilities::installation_record());
+        return Ok(0);
+    }
     // Internal entry point runs under the outer controller's lock and mount
     // namespace guard. It must not acquire that lock recursively.
     if args.get(1).map(String::as_str) == Some("_dynamic-direct") {
         let settings = cli::parse_settings_args(&args[2..])?;
-        dynamic_direct::apply(&settings, &module_dir()?)?;
+        let module_dir = module_dir()?;
+        capabilities::detect(&module_dir).require_policy()?;
+        dynamic_direct::apply(&settings, &module_dir)?;
         return Ok(0);
     }
     match cli::parse(args)? {
@@ -91,6 +98,7 @@ fn run(args: &[String]) -> Result<i32, String> {
         }
         ControllerCommand::Preview(settings) => {
             let module_dir = module_dir()?;
+            capabilities::detect(&module_dir).require_policy()?;
             validate_settings(&settings, &module_dir)?;
             print!(
                 "{}",
@@ -201,7 +209,16 @@ fn run_reapply() -> Result<i32, String> {
         );
         return Ok(0);
     }
-    let plan = build_reapply_plan(&stored);
+    let caps = capabilities::detect(&module_dir()?);
+    let saved_plan = build_reapply_plan(&stored);
+    for action in saved_plan.iter().filter(|action| !caps.allows_reapply(action)) {
+        let tool = match action {
+            domain::ReapplyAction::Policy(_) => "policy".to_string(),
+            domain::ReapplyAction::Extra(action) => action.tool(),
+        };
+        println!("reapply_skipped={tool}:{}", caps.reason);
+    }
+    let plan = reapply::filter_reapply_plan(saved_plan, &caps);
     let applied = plan.len();
     let code = run_reapply_batch_locked(&plan, &lock)?;
     if code != 0 {

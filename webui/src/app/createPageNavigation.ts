@@ -1,4 +1,4 @@
-import { createMemo, createSignal, onCleanup, onMount, type Accessor } from "solid-js";
+import { createEffect, createMemo, createSignal, on, onCleanup, onMount, type Accessor } from "solid-js";
 import EmblaCarousel, { type EmblaCarouselType } from "embla-carousel";
 
 export const PAGE_IDS = ["policy", "tools", "tuning", "settings"] as const;
@@ -19,6 +19,7 @@ export type PageNavigation = {
 
 export type PageNavigationOptions = {
   initialPage?: PageId;
+  pages?: Accessor<readonly PageId[]>;
   browserWindow?: Window;
 };
 
@@ -31,13 +32,17 @@ export type PageNavigationOptions = {
  */
 export function createPageNavigation(options: PageNavigationOptions = {}): PageNavigation {
   const browserWindow = options.browserWindow ?? window;
-  const initialPage = PAGE_IDS.includes(options.initialPage ?? "policy")
+  const pages = createMemo<readonly PageId[]>(() => {
+    const available = [...new Set(options.pages?.() ?? PAGE_IDS)].filter((page) => PAGE_IDS.includes(page));
+    return available.length ? available : ["settings"];
+  });
+  const initialPage = pages().includes(options.initialPage ?? "policy")
     ? options.initialPage ?? "policy"
-    : "policy";
+    : pages()[0];
   const [activePage, setActivePage] = createSignal<PageId>(initialPage);
-  const [pageProgress, setPageProgress] = createSignal(PAGE_IDS.indexOf(initialPage));
+  const [pageProgress, setPageProgress] = createSignal(pages().indexOf(initialPage));
   const [pageDragging, setPageDragging] = createSignal(false);
-  const activeIndex = createMemo(() => PAGE_IDS.indexOf(activePage()));
+  const activeIndex = createMemo(() => pages().indexOf(activePage()));
 
   let viewport: HTMLDivElement | undefined;
   let carousel: EmblaCarouselType | undefined;
@@ -54,8 +59,8 @@ export function createPageNavigation(options: PageNavigationOptions = {}): PageN
   function syncCarousel() {
     if (!carousel) return;
     const progress = Math.max(0, Math.min(1, carousel.scrollProgress()));
-    setPageProgress(progress * (PAGE_IDS.length - 1));
-    const nextPage = PAGE_IDS[carousel.selectedScrollSnap()] ?? "policy";
+    setPageProgress(progress * (pages().length - 1));
+    const nextPage = pages()[carousel.selectedScrollSnap()] ?? pages()[0];
     if (nextPage === activePage()) return;
     setActivePage(nextPage);
     replaceHistoryPage(nextPage);
@@ -89,7 +94,7 @@ export function createPageNavigation(options: PageNavigationOptions = {}): PageN
       syncCarousel();
     });
 
-    const initialIndex = PAGE_IDS.indexOf(activePage());
+    const initialIndex = pages().indexOf(activePage());
     if (initialIndex > 0) carousel.scrollTo(initialIndex, true);
     syncCarousel();
   }
@@ -102,7 +107,8 @@ export function createPageNavigation(options: PageNavigationOptions = {}): PageN
   }
 
   function activatePage(page: PageId) {
-    const index = PAGE_IDS.indexOf(page);
+    const index = pages().indexOf(page);
+    if (index < 0) return;
     if (!carousel) {
       setActivePage(page);
       setPageProgress(index);
@@ -136,6 +142,19 @@ export function createPageNavigation(options: PageNavigationOptions = {}): PageN
   function handleInputTouchCancel() {
     inputSwipeStart = undefined;
   }
+
+  createEffect(on(pages, (available) => {
+    const next = available.includes(activePage()) ? activePage() : available[0];
+    setActivePage(next);
+    setPageProgress(available.indexOf(next));
+    replaceHistoryPage(next);
+    // Solid updates the slide DOM before Embla measures its new snap list.
+    queueMicrotask(() => {
+      if (!mounted || !carousel) return;
+      carousel.reInit({ startIndex: pages().indexOf(activePage()) });
+      syncCarousel();
+    });
+  }, { defer: true }));
 
   onMount(() => {
     mounted = true;

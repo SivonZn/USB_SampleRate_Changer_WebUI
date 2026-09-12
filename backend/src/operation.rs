@@ -1,4 +1,5 @@
 use std::fs::{self, OpenOptions};
+use std::path::Path;
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::ExitStatusExt;
@@ -12,7 +13,7 @@ use crate::process::{execute_stdin, execute_stdin_with_lease, ExecutionResult};
 use crate::scripts::{
     extra_command_summaries, policy_command_summary, reapply_command_summaries,
     render_extra_restart_script, render_extra_script, render_extra_status_script,
-    render_policy_script, render_reapply_restart_script, render_reapply_steps,
+    render_policy_script_with_restart, render_reapply_restart_script, render_reapply_steps,
     render_reapply_verifications, validate_reapply_plan, validate_settings_for_action,
     ReapplyScriptStep,
 };
@@ -149,6 +150,10 @@ impl OperationState {
 
 pub(crate) fn run_extra(action: ExtraAction) -> Result<i32, String> {
     let module_dir = module_dir()?;
+    let caps = crate::capabilities::detect(&module_dir);
+    if !caps.allows_extra(&action) {
+        return Err(format!("unsupported_device_capability: {} ({})", action.tool(), caps.reason));
+    }
     let script_path = module_dir
         .join(CORE_DIR)
         .join("extras")
@@ -162,6 +167,16 @@ pub(crate) fn run_extra(action: ExtraAction) -> Result<i32, String> {
     ensure_state_layout()?;
     let lock = acquire_operation_lock()?;
     let state_store = StateStore::new();
+    // A limited device may clean up an old USB setting, but must not reset
+    // properties it has never managed. Queries remain available for cleanup.
+    if !caps.legacy_controls && matches!(action, ExtraAction::UsbPeriodReset)
+        && !load_state_preflight(&state_store, false)?.settings.usb_period_configured {
+        println!("controller_action=extra-usb-period");
+        println!("cleanup_skipped=not_configured");
+        print!("{}", render_operation_contract(OperationKind::Mutation, OperationResult::Success,
+            false, Some(OperationState::NotStarted)));
+        return Ok(0);
+    }
     let tool = action.tool();
     let generated = render_extra_script(&script_path, &action);
     let business_commands = extra_command_summaries(&script_path, &action);
@@ -224,6 +239,8 @@ pub(crate) fn run_extra(action: ExtraAction) -> Result<i32, String> {
 
 pub(crate) fn run_operation(mut settings: Settings, action: Action) -> Result<i32, String> {
     let module_dir = module_dir()?;
+    let caps = crate::capabilities::detect(&module_dir);
+    if matches!(action, Action::Apply) { caps.require_policy()?; }
     validate_settings_for_action(&settings, &module_dir, action)?;
     ensure_state_layout()?;
     let lock = acquire_operation_lock()?;
@@ -232,7 +249,18 @@ pub(crate) fn run_operation(mut settings: Settings, action: Action) -> Result<i3
     }
     let state_store = StateStore::new();
 
-    let generated = render_policy_script(&settings, &module_dir, action);
+    if matches!(action, Action::Reset) && !caps.legacy_controls
+        && !Path::new("/data/local/tmp/audio_conf_generated.xml").exists()
+        && !module_dir.join("core/.config").exists() {
+        // No policy artifact exists: clear the saved policy without restarting
+        // audioserver or entering the legacy vendor HAL restart path.
+        state_store.update(crate::state::StateDelta::PolicyReset)?;
+        return finish_internal_mutation("reset", "policy reset: saved state only".into());
+    }
+    let generated = render_policy_script_with_restart(
+        &settings, &module_dir, action,
+        !caps.legacy_controls || settings.policy == "offload-direct-dynamic",
+    );
     let business_commands = vec![policy_command_summary(&settings, &module_dir, action)];
 
     let a2dp_state = Some(bluetooth_a2dp_state());
@@ -268,6 +296,12 @@ pub(crate) fn run_reapply_batch_locked(
     lock: &OperationLock,
 ) -> Result<i32, String> {
     let module_dir = module_dir()?;
+    let caps = crate::capabilities::detect(&module_dir);
+    for action in plan {
+        if !caps.allows_reapply(action) {
+            return Err(format!("unsupported_device_capability: reapply ({})", caps.reason));
+        }
+    }
     validate_reapply_plan(plan, &module_dir)?;
 
     let steps = render_reapply_steps(plan, &module_dir);

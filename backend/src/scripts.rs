@@ -260,8 +260,15 @@ pub(crate) fn render_policy_script(
     module_dir: &Path,
     action: Action,
 ) -> String {
+    render_policy_script_with_restart(settings, module_dir, action, settings.policy == "offload-direct-dynamic")
+}
+
+/// Limited-device cleanup must never restart legacy vendor HAL services.
+pub(crate) fn render_policy_script_with_restart(
+    settings: &Settings, module_dir: &Path, action: Action, audioserver_only: bool,
+) -> String {
     let command = policy_command_summary(settings, module_dir, action);
-    let restart = restart_command(module_dir, action, settings.policy == "offload-direct-dynamic");
+    let restart = restart_command(module_dir, action, audioserver_only);
 
     format!(
         "{GUARDED_SHELL_PREFIX}echo 'controller_upstream_started=1' >&2\n{command}\nstatus=$?\nif [ $status -eq 0 ]; then exec {restart}; else exit $status; fi\n"

@@ -40,6 +40,7 @@ export type TuningPageModel = {
 
 export type CreateTuningModelOptions = {
   controller: TuningController;
+  canOperate?: (operation: string) => boolean;
   operations: OperationCoordinator;
   notifications: NotificationCenter;
   confirmations: ConfirmService;
@@ -126,6 +127,7 @@ export function createTuningModel(options: CreateTuningModelOptions): TuningPage
   }
 
   async function apply() {
+    if (options.canOperate?.("set") === false) return;
     const pendingFeatures = [...dirty()];
     if (pendingFeatures.length === 0) {
       options.notifications.info("tuning.noChanges");
@@ -161,6 +163,7 @@ export function createTuningModel(options: CreateTuningModelOptions): TuningPage
         }
 
         for (const operation of pendingOperations) {
+          if (options.canOperate?.("set") === false) return;
           const result = await options.controller.setJitter(operation);
           outputs.push(`[${operation.feature}]\n${outputText(result)}`.trim());
 
@@ -185,12 +188,13 @@ export function createTuningModel(options: CreateTuningModelOptions): TuningPage
   }
 
   async function reset() {
+    if (options.canOperate?.("reset") === false) return;
     const accepted = await options.confirmations.confirm({
       title: "tuning.reset.title",
       message: "tuning.reset.message",
       confirmLabel: "common.confirmReset"
     });
-    if (!accepted) return;
+    if (!accepted || options.canOperate?.("reset") === false) return;
 
     const resetFeatures = options.resetFeatures?.()
       ?? new Set(Object.keys(settings().jitter));

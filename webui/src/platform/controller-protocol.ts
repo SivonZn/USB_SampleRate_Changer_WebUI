@@ -17,6 +17,12 @@ export type ControllerOperationMetadata = {
 
 export type ControllerStatus = {
   controller_version?: string;
+  audio_hal?: string;
+  capability_mode?: string;
+  capability_reason?: string;
+  policy_available?: string;
+  bluetooth_hal_available?: string;
+  usb_period_available?: string;
   script_version?: string;
   module_dir?: string;
   policy?: string;

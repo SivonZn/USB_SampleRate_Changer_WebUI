@@ -1935,3 +1935,48 @@ fn dynamic_direct_uses_dedicated_generator_for_apply_and_reapply() {
     let stored = StoredSettings { policy: settings, policy_configured: true, ..StoredSettings::default() };
     assert_eq!(parse_stored_settings(&render_stored_settings(&stored)).policy.policy, "offload-direct-dynamic");
 }
+
+#[test]
+fn limited_reapply_skips_legacy_actions_and_keeps_every_jitter_feature() {
+    use crate::capabilities::DeviceCapabilities;
+    let caps = DeviceCapabilities::limited("aidl", "test");
+    let mut stored = StoredSettings {
+        auto_reapply: true, policy_configured: true, bluetooth_hal_configured: true,
+        usb_period_configured: true, resampler_configured: true, ..StoredSettings::default()
+    };
+    for feature in JITTER_FEATURES {
+        stored.jitter_configured.insert((*feature).into(), true);
+        stored.jitter_values.insert((*feature).into(), true);
+    }
+    let saved = stored.clone();
+    let full = build_reapply_plan(&stored);
+    let plan = crate::reapply::filter_reapply_plan(full.clone(), &caps);
+    assert_eq!(plan.len(), 1 + JITTER_FEATURES.len());
+    assert!(matches!(&plan[0], ReapplyAction::Extra(ExtraAction::ResamplerPreset { .. })));
+    for feature in JITTER_FEATURES {
+        assert!(plan.iter().any(|action| matches!(action, ReapplyAction::Extra(ExtraAction::JitterSet { feature: name, .. }) if name == feature)));
+    }
+    assert_eq!(saved, stored);
+    assert_eq!(crate::reapply::filter_reapply_plan(full.clone(), &DeviceCapabilities::from_evidence(true, Some(""))), full);
+    let commands = reapply_command_summaries(&plan, &module_fixture()).join("\n");
+    assert!(!commands.contains("change-usb-period.sh"));
+    assert!(!commands.contains("change-bluetooth-hal.sh"));
+    assert!(!commands.contains("USB_SampleRate_Changer.sh"));
+    assert!(commands.contains("'--effect'"));
+}
+
+#[test]
+fn limited_capabilities_block_writes_but_allow_managed_cleanup_and_all_jitter() {
+    let caps = crate::capabilities::DeviceCapabilities::limited("aidl", "test");
+    assert!(caps.require_policy().is_err());
+    for mode in BLUETOOTH_HAL_OPTIONS { assert!(!caps.allows_extra(&extra(&["bluetooth-hal", mode]))); }
+    assert!(!caps.allows_extra(&extra(&["usb-period", "2250"])));
+    assert!(caps.allows_extra(&extra(&["usb-period", "reset"])));
+    for feature in JITTER_FEATURES.iter().chain(["all"].iter()) {
+        for mode in ["enable", "disable"] { assert!(caps.allows_extra(&extra(&["jitter", mode, feature]))); }
+    }
+    for preset in RESAMPLER_PRESETS { assert!(caps.allows_extra(&extra(&["resampler", preset.0]))); }
+    let script = crate::scripts::render_policy_script_with_restart(&Settings::default(), &module_fixture(), Action::Reset, true);
+    assert!(script.contains("'--reset'"));
+    assert!(!script.contains("'--all'"));
+}

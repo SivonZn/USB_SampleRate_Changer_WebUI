@@ -24,6 +24,7 @@ export type SchemaGroup = { labelKey: string; options: ReadonlyArray<SchemaOptio
 
 export type SchemaModel = {
   schema: Accessor<ControllerSchema | undefined>;
+  policyAvailable: Accessor<boolean>;
   policyOptions: Accessor<ReadonlyArray<SchemaOption>>;
   rateOptions: Accessor<ReadonlyArray<SchemaOption>>;
   bitDepthOptions: Accessor<ReadonlyArray<SchemaOption>>;
@@ -97,10 +98,11 @@ const fallbackLimits = {
 };
 
 function withFallback(dynamic: ReadonlyArray<SchemaOption> | undefined, fallbackItems: ReadonlyArray<SchemaOption>) {
-  return dynamic?.length ? dynamic : fallbackItems;
+  return dynamic ?? fallbackItems;
 }
 
 function groupPresets(items: ReadonlyArray<SchemaOption>): SchemaGroup[] {
+  if (!items.length) return [];
   const custom = fallbackPresetGroups[0].options.find(({ value }) => value === "custom")!;
   // The controller's "default" alias resolves to the same AudioFlinger
   // preset as 179-408-99 (Android 12+ default); never expose it as a choice.
@@ -125,28 +127,34 @@ function schemaFeatures(current: ControllerSchema | undefined): ReadonlyArray<Sc
 
 export function createSchemaModel(controller: Pick<ControllerClient, "schema">): SchemaModel {
   const [schema, setSchema] = createSignal<ControllerSchema>();
+  let loadGeneration = 0;
 
   async function load(): Promise<boolean> {
+    const generation = ++loadGeneration;
     try {
       const response = await controller.schema();
+      if (generation !== loadGeneration) return false;
       if (response.schema) {
         setSchema(response.schema);
         return true;
       }
     } catch {
-      // Older controllers and malformed contracts use the complete static fallback.
+      // A failed read must never restore write access through static defaults.
     }
+    if (generation === loadGeneration) setSchema(undefined);
     return false;
   }
 
   function toolAvailable(name: SchemaToolName): boolean {
-    return schema()?.extras.tools[name]?.available ?? true;
+    const current = schema();
+    if (!current) return false;
+    return current.extras.tools[name]?.available ?? !current.capabilities.device_capabilities;
   }
 
   function toolOperation(name: SchemaToolName, operation: string): boolean {
-    const capability = schema()?.extras.tools[name];
-    if (capability?.available === false) return false;
-    return capability?.operations[operation] ?? true;
+    if (!toolAvailable(name)) return false;
+    const current = schema()!;
+    return current.extras.tools[name]?.operations[operation] ?? !current.capabilities.device_capabilities;
   }
 
   function jitterFeatureCapability(feature: string, capability: string): boolean {
@@ -156,6 +164,7 @@ export function createSchemaModel(controller: Pick<ControllerClient, "schema">):
 
   return {
     schema,
+    policyAvailable: () => !!schema() && schema()!.policy.available !== false,
     policyOptions: () => groupPolicyOptions(schema()?.policy.options ?? fallbackPolicy).flatMap(({ options }) => options),
     rateOptions: () => schema()?.sampleRates ?? fallbackRates,
     bitDepthOptions: () => schema()?.bitDepths ?? fallbackBits,
