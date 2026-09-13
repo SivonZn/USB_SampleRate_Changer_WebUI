@@ -11,10 +11,10 @@ use crate::paths::{atomic_write, ensure_state_layout, log_root, module_dir, stat
 use crate::process::{execute_stdin, execute_stdin_with_lease, ExecutionResult};
 use crate::scripts::{
     extra_command_summaries, policy_command_summary, reapply_command_summaries,
-    render_extra_restart_script, render_extra_script, render_extra_status_script,
-    render_policy_script, render_reapply_restart_script, render_reapply_steps,
-    render_reapply_verifications, validate_reapply_plan, validate_settings_for_action,
-    ReapplyScriptStep,
+    render_cleanup_script, render_extra_restart_script, render_extra_script,
+    render_extra_status_script, render_policy_script, render_reapply_restart_script,
+    render_reapply_steps, render_reapply_verifications, validate_reapply_plan,
+    validate_settings_for_action, ReapplyScriptStep,
 };
 use crate::state::{
     persist_extra_settings, reset_policy_settings, save_policy_settings, StateSnapshot, StateStore,
@@ -54,6 +54,7 @@ where
 
 const EXECUTION_OUTPUT_LIMIT: usize = 64 * 1024;
 const POLICY_TIMEOUT: Duration = Duration::from_secs(20);
+const CLEANUP_TIMEOUT: Duration = Duration::from_secs(75);
 const EXTRA_TIMEOUT: Duration = Duration::from_secs(15);
 const DIAGNOSTIC_TIMEOUT: Duration = Duration::from_secs(30);
 const VERIFICATION_TIMEOUT: Duration = Duration::from_secs(5);
@@ -256,6 +257,31 @@ pub(crate) fn run_operation(mut settings: Settings, action: Action) -> Result<i3
             script: &generated,
             a2dp_state,
             persistence,
+            reapply_progress: None,
+            phased_progress: None,
+        },
+        execution,
+    )
+}
+
+pub(crate) fn run_cleanup() -> Result<i32, String> {
+    let module_dir = module_dir()?;
+    ensure_state_layout()?;
+    let lock = acquire_operation_lock()?;
+    let namespace = namespace_info();
+    let (route, command) = script_runner(&namespace);
+    let (generated, business_commands) = render_cleanup_script(&module_dir);
+    let execution = execute_script_locked(&generated, &namespace, CLEANUP_TIMEOUT, &lock)?;
+    finalize_operation(
+        OperationContext {
+            action: "cleanup",
+            kind: OperationKind::Mutation,
+            route,
+            command: &command,
+            business_commands: &business_commands,
+            script: &generated,
+            a2dp_state: None,
+            persistence: Persistence::NotRequired,
             reapply_progress: None,
             phased_progress: None,
         },
@@ -1179,9 +1205,10 @@ struct OperationContext<'a> {
     phased_progress: Option<&'a PhasedMutationProgress>,
 }
 
-/// Complete the common post-execution pipeline.  Upstream failure, A2DP
-/// verification, state persistence, and audit persistence remain distinct so
-/// callers can tell whether the Android system was already modified.
+/// Complete the common post-execution pipeline. Upstream failure, Bluetooth
+/// route verification, state persistence, and audit persistence remain
+/// distinct so callers can tell whether the Android system was already
+/// modified.
 fn finalize_operation(
     context: OperationContext<'_>,
     execution: ExecutionResult,
@@ -1233,6 +1260,12 @@ fn finalize_operation(
         || upstream_started(&output)
         || operation_state.is_some_and(|state| !matches!(state, OperationState::NotStarted));
     let mut final_code = upstream_code;
+    let persistence_allowed = persistence_allowed_with_progress(
+        kind,
+        upstream_succeeded,
+        operation_state,
+        phased_progress.map(PhasedMutationProgress::persistence_ready),
+    );
 
     let post_check = if !operation_may_have_applied || !post_check_ready {
         "skipped"
@@ -1255,7 +1288,7 @@ fn finalize_operation(
             Err(error) => {
                 final_code = 72;
                 output.stderr.extend_from_slice(
-                    format!("Bluetooth A2DP route verification failed: {error}\n").as_bytes(),
+                    format!("Bluetooth media route verification failed: {error}\n").as_bytes(),
                 );
                 "a2dp-route-failed"
             }
@@ -1266,14 +1299,9 @@ fn finalize_operation(
         "not-connected"
     };
 
-    let dynamic_failed = matches!(&persistence, Persistence::PolicyApply(settings)
-        if settings.policy == "offload-direct-dynamic") && final_code != 0;
-    let persistence_allowed = !dynamic_failed && persistence_allowed_with_progress(
-        kind,
-        upstream_succeeded,
-        operation_state,
-        phased_progress.map(PhasedMutationProgress::persistence_ready),
-    );
+    // The persistence decision is based on the mutation phase above. A route
+    // post-check may change final_code to 72, but it cannot undo an applied
+    // policy and therefore must not suppress the corresponding saved state.
     let state_persist = if persistence_allowed {
         match persistence.persist() {
             Ok(status) => status,

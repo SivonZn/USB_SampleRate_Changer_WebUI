@@ -28,14 +28,14 @@ In the built module, all upstream scripts, templates and Extras are placed under
 | DRC switch | `--drc` |
 | Force USBv2 switch | `--force-usbv2` |
 | Force Bluetooth QTI switch | `--force-bluetooth-qti` |
-| Bluetooth A2DP route check | Runs automatically after an audio change when A2DP was connected before the operation |
+| Bluetooth media route check | Runs automatically after an audio change when A2DP or LE Audio was connected before the operation |
 | Reset | `--reset` |
 
 ## Extras
 
 | WebUI control | `USB_SampleRate_Changer` control |
 | --- | --- |
-| Bluetooth audio HAL | `change-bluetooth-hal.sh`: switch between `aosp`, `legacy`, `offload` and `sysbta` |
+| Bluetooth audio HAL | `change-bluetooth-hal.sh`: switch between `aosp`, `legacy`, `offload` and `sysbta`, or restore the original ROM property values |
 | AudioFlinger resampler | `change-resampling-quality.sh`: all bundled presets, or validated custom stop-band attenuation (20–242 dB), half-filter length (8–640 in steps of 8), cutoff/cheat percentage and 44.1/48/96 kHz activation threshold |
 | USB transfer period | `change-usb-period.sh`: the complete 125–50000 µs range in steps of 125 µs |
 | System Jitter optimization | `jitter-reducer.sh`: SELinux, thermal, Doze, CPU governor, camera, logd, I/O, virtual memory, Wi-Fi, battery and effects; I/O scheduler/tone and Wi-Fi no-restart are supported |
@@ -72,7 +72,7 @@ The build copies the current Submodule worktree into a temporary directory, veri
 ## Safety and compatibility
 
 - This module modifies audio policy, audio-service properties and selected system-tuning parameters. Confirm that the device, ROM and HAL support the chosen mode.
-- Applying a policy or resampler configuration may briefly interrupt audio. Pay particular attention to the route-recovery warning when Bluetooth A2DP is connected.
+- Applying a policy or resampler configuration may briefly interrupt audio. Pay particular attention to the route-recovery warning when Bluetooth A2DP or LE Audio is connected.
 - SELinux, thermal, Doze, governor and system-service operations may reduce security, stability or battery life and may cause overheating. Enable only options whose impact you understand.
 - Actual high-sample-rate support also depends on the USB DAC, kernel, USB Audio HAL and vendor audio policy; the selector range does not mean every device supports every rate.
 - Use this module at your own risk. The project is not responsible for damage caused by using it.

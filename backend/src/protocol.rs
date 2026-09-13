@@ -338,7 +338,7 @@ fn render_schema_json(module_dir: &Path) -> String {
     );
     out.push_str(",\"default\":\"offload\",\"recommended\":\"offload\"");
     out.push_str(",\"actions\":[");
-    for (index, value) in ["status", "aosp", "legacy", "offload", "sysbta"]
+    for (index, value) in ["status", "reset", "aosp", "legacy", "offload", "sysbta"]
         .iter()
         .enumerate()
     {
@@ -354,13 +354,17 @@ fn render_schema_json(module_dir: &Path) -> String {
             &format!("bluetooth_hal.action.{value}.label"),
         );
         out.push_str(",\"kind\":");
-        out.push_str(&json_quote(if *value == "status" {
-            "status"
-        } else {
-            "set"
+        out.push_str(&json_quote(match *value {
+            "status" => "status",
+            "reset" => "reset",
+            _ => "set",
         }));
         out.push_str(",\"selectable\":");
-        out.push_str(if *value == "status" { "false" } else { "true" });
+        out.push_str(if matches!(*value, "status" | "reset") {
+            "false"
+        } else {
+            "true"
+        });
         out.push('}');
     }
     out.push_str("],\"options\":[");
@@ -388,7 +392,7 @@ fn render_schema_json(module_dir: &Path) -> String {
         out.push_str(if *value == "offload" { "true" } else { "false" });
         out.push('}');
     }
-    out.push_str("],\"operations\":{\"status\":true,\"set\":true,\"reset\":false}}");
+    out.push_str("],\"operations\":{\"status\":true,\"set\":true,\"reset\":true}}");
 
     out.push_str(",\"resampler\":{");
     out.push_str("\"available\":true,\"tool\":\"resampler\",");

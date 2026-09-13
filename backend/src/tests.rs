@@ -28,9 +28,9 @@ use crate::protocol::render_schema_json_for_test;
 use crate::reapply::build_reapply_plan;
 use crate::scripts::{
     extra_command_summary, policy_command_summary, reapply_command_summaries,
-    render_extra_restart_script, render_extra_script, render_extra_status_script,
-    render_policy_script, render_reapply_script, render_reapply_verifications, shell_quote,
-    upstream_args, validate_settings,
+    render_cleanup_script, render_extra_restart_script, render_extra_script,
+    render_extra_status_script, render_policy_script, render_reapply_script,
+    render_reapply_verifications, shell_quote, upstream_args, validate_settings,
 };
 use crate::state::{
     parse_stored_settings, render_stored_settings, update_stored_settings_for_extra, StateDelta,
@@ -203,6 +203,15 @@ fn successful_diagnostic_query_can_persist_preferences() {
 }
 
 #[test]
+fn applied_mutation_is_eligible_for_persistence() {
+    assert!(persistence_allowed(
+        OperationKind::Mutation,
+        true,
+        Some(OperationState::Applied)
+    ));
+}
+
+#[test]
 fn query_audit_does_not_replace_last_mutation_status() {
     let root = state_fixture("query-audit");
     fs::create_dir_all(&root).unwrap();
@@ -354,7 +363,8 @@ fn renders_complete_extras_schema_capabilities() {
         "\"default\":\"offload\",\"recommended\":\"offload\"",
         "\"kind\":\"status\",\"selectable\":false",
         "\"actions\":[{\"value\":\"status\",\"kind\":\"status\",\"selectable\":false}",
-        "\"operations\":{\"status\":true,\"set\":true,\"reset\":false}",
+        "\"value\":\"reset\",\"label_key\":\"bluetooth_hal.action.reset.label\",\"kind\":\"reset\",\"selectable\":false",
+        "\"operations\":{\"status\":true,\"set\":true,\"reset\":true}",
         "\"resampler\":{\"available\":true,\"tool\":\"resampler\"",
         "\"default_preset\":\"179-408-99\",\"upstream_default_preset\":\"default\",\"recommended\":\"179-408-99\"",
         "\"value\":\"custom\",\"label_key\":\"resampler.custom.label\"",
@@ -439,6 +449,52 @@ fn schema_cli_keeps_text_mode_and_adds_json_mode() {
         "--yaml".to_string(),
     ])
     .is_err());
+}
+
+#[test]
+fn cleanup_cli_is_an_internal_mutation() {
+    let args = ["usbsrctl".to_string(), "cleanup".to_string()];
+    assert_eq!(parse(&args).unwrap(), ControllerCommand::Cleanup);
+    let operation = operation_preflight(&args).unwrap();
+    assert_eq!(
+        operation_not_started_fields(&operation),
+        concat!(
+            "controller_action=cleanup\n",
+            "operation_kind=mutation\n",
+            "operation_result=not_started\n",
+            "operation_applied=0\n",
+            "operation_state=not_started\n"
+        )
+    );
+}
+
+#[test]
+fn uninstall_cleanup_runs_all_fixed_resets_and_restarts_once() {
+    let (script, commands) = render_cleanup_script(&module_fixture());
+    for (label, needle) in [
+        ("bluetooth-hal", "change-bluetooth-hal.sh"),
+        ("resampler", "change-resampling-quality.sh"),
+        ("usb-period", "change-usb-period.sh"),
+        ("jitter", "jitter-reducer.sh"),
+        ("policy", "USB_SampleRate_Changer.sh"),
+    ] {
+        assert!(script.contains(&format!("cleanup_step_started={label}")));
+        assert!(script.contains(needle));
+    }
+    assert!(script.contains("'++all' '++battery' '++effect' '--status'"));
+    assert!(script.contains("change-bluetooth-hal.sh' '--reset'"));
+    assert!(script.contains("USB_SampleRate_Changer.sh' '--reset'"));
+    assert_eq!(script.matches("cleanup_restart_started=1").count(), 1);
+    assert_eq!(script.matches("reload-audio-servers.sh").count(), 1);
+    assert!(script.contains("reload-audio-servers.sh' '--bluetooth-hal' 'reset'"));
+    assert_eq!(commands.len(), 6);
+    assert!(script.contains("cleanup_failure=0"));
+    assert!(script.contains("exit \"$cleanup_failure\""));
+    assert!(!script.contains("settings.conf"));
+
+    let uninstall = include_str!("../../module/uninstall.sh");
+    assert!(uninstall.contains("\"$MODDIR/usbsrctl\" cleanup"));
+    assert_eq!(uninstall.matches("\"$MODDIR/usbsrctl\" cleanup").count(), 1);
 }
 
 #[test]
@@ -956,10 +1012,33 @@ fn detects_a2dp_only_inside_connected_device_section() {
 }
 
 #[test]
+fn detects_le_audio_media_routes() {
+    for device in ["ble_headset", "ble_speaker", "ble_broadcast"] {
+        let connected = format!(
+            "- STREAM_MUSIC:\n  Devices: {device}(20000000)\n- STREAM_ALARM:\nConnected devices:\n  [DeviceInfo: type:0x20000000 ({device}) name:LE Audio]\nAPM Connected device (A2DP sink only):\n"
+        );
+        assert!(
+            bluetooth_a2dp_connected_in_dump(&connected),
+            "failed to detect {device}"
+        );
+
+        let unrouted = format!(
+            "- STREAM_MUSIC:\n  Devices: speaker(2)\n- STREAM_ALARM:\nConnected devices:\n  [DeviceInfo: type:0x20000000 ({device}) name:LE Audio]\nAPM Connected device (A2DP sink only):\n"
+        );
+        assert!(!bluetooth_a2dp_connected_in_dump(&unrouted));
+    }
+}
+
+#[test]
 fn extra_commands_are_strictly_whitelisted() {
     let parsed = extra(&["bluetooth-hal", "offload"]);
     assert_eq!(parsed.script(), "change-bluetooth-hal.sh");
     assert_eq!(parsed.script_args(), ["offload"]);
+
+    let reset = extra(&["bluetooth-hal", "reset"]);
+    assert_eq!(reset.script_args(), ["--reset"]);
+    assert!(reset.requires_audio_restart());
+    assert!(reset.requires_a2dp_post_check());
 
     let injection = ["bluetooth-hal", "offload;id"]
         .into_iter()
@@ -1388,6 +1467,16 @@ fn extra_updates_every_tool_and_tuning_selection() {
     ));
     assert!(settings.bluetooth_hal_configured);
     assert_eq!(settings.bluetooth_hal, "aosp");
+
+    assert!(update_stored_settings_for_extra(
+        &mut settings,
+        &extra(&["bluetooth-hal", "reset"])
+    ));
+    assert!(!settings.bluetooth_hal_configured);
+    assert_eq!(
+        settings.bluetooth_hal,
+        StoredSettings::default().bluetooth_hal
+    );
 
     assert!(update_stored_settings_for_extra(
         &mut settings,
@@ -1920,8 +2009,12 @@ fn reapply_runs_independent_verifications_and_stops_after_timeout() {
 
 #[test]
 fn dynamic_direct_uses_dedicated_generator_for_apply_and_reapply() {
-    let settings = Settings { policy: "offload-direct-dynamic".into(), sample_rate: 48000,
-        bit_depth: "24".into(), ..Settings::default() };
+    let settings = Settings {
+        policy: "offload-direct-dynamic".into(),
+        sample_rate: 48000,
+        bit_depth: "24".into(),
+        ..Settings::default()
+    };
     let script = render_policy_script(&settings, &module_fixture(), Action::Apply);
     assert!(script.contains("'_dynamic-direct' '--policy' 'offload-direct-dynamic'"));
     assert!(!script.contains("core/USB_SampleRate_Changer.sh"));
@@ -1931,7 +2024,23 @@ fn dynamic_direct_uses_dedicated_generator_for_apply_and_reapply() {
     let reset = render_policy_script(&settings, &module_fixture(), Action::Reset);
     assert!(reset.contains("core/USB_SampleRate_Changer.sh") && reset.contains("'--reset'"));
     assert!(!reset.contains("'--all'"));
-    assert!(render_policy_script(&Settings::default(), &module_fixture(), Action::Reset).contains("'--all'"));
-    let stored = StoredSettings { policy: settings, policy_configured: true, ..StoredSettings::default() };
-    assert_eq!(parse_stored_settings(&render_stored_settings(&stored)).policy.policy, "offload-direct-dynamic");
+    assert!(
+        !render_policy_script(&Settings::default(), &module_fixture(), Action::Reset)
+            .contains("'--all'")
+    );
+    assert!(
+        !include_str!("../../patches/0004-controller-owns-audio-restart.patch")
+            .contains("ctl.restart vendor.audio-hal")
+    );
+    let stored = StoredSettings {
+        policy: settings,
+        policy_configured: true,
+        ..StoredSettings::default()
+    };
+    assert_eq!(
+        parse_stored_settings(&render_stored_settings(&stored))
+            .policy
+            .policy,
+        "offload-direct-dynamic"
+    );
 }
