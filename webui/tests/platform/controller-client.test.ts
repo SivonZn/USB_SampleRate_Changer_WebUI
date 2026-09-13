@@ -22,6 +22,7 @@ describe("ControllerClient typed methods", () => {
 
     await client.apply({ ...defaultPolicySettings(), rate: "custom", customRate: "123456", drc: true });
     await client.setBluetoothHal("legacy");
+    await client.resetBluetoothHal();
     await client.applyResampler({ preset: "custom", bypass: "96", cheat: false, stopBand: 194, halfLength: 520, percent: 42 });
     await client.setUsbPeriod(2250);
     await client.diagnose("alsa", true);
@@ -31,6 +32,7 @@ describe("ControllerClient typed methods", () => {
     expect(commands).toEqual([
       "'/ctl' 'apply' '--policy' 'auto' '--sample-rate' '123456' '--bit-depth' '32' '--drc'",
       "'/ctl' 'extra' 'bluetooth-hal' 'legacy'",
+      "'/ctl' 'extra' 'bluetooth-hal' 'reset'",
       "'/ctl' 'extra' 'resampler' 'custom' '96' 'cutoff' '194' '520' '42'",
       "'/ctl' 'extra' 'usb-period' '2250'",
       "'/ctl' 'extra' 'diagnose' 'alsa' 'all'",

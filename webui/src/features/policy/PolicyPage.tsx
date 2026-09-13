@@ -107,7 +107,7 @@ export function PolicyPage(props: {
           <div><span class="label">audioserver</span><strong>{props.model.status().system.audioserverPid || props.tx("policy.status.notDetected")}</strong></div>
           <div><span class="label">{props.tx("policy.status.scriptVersion")}</span><strong>{props.model.status().system.scriptVersion || "—"}</strong></div>
           <div><span class="label">{props.tx("policy.status.sampleRate")}</span><strong>{props.model.status().policy.rate ? rateLabel(selectedRate(props.model.status().policy)) : "—"}</strong></div>
-          <div><span class="label">Bluetooth A2DP</span><strong>{a2dpLabel()}</strong></div>
+          <div><span class="label">{props.tx("policy.status.bluetoothMedia")}</span><strong>{a2dpLabel()}</strong></div>
         </section>
         <Show when={props.model.status().system.stateDegraded}>
           <div class="notice danger-notice status-health"><strong>{props.tx("policy.status.degraded")}</strong><span>{props.model.status().system.stateDegradedReason || props.tx("policy.status.degradedUnknown")}</span></div>

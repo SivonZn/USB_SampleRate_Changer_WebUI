@@ -57,7 +57,7 @@ export const jitterFeatures = ["selinux", "thermal", "doze", "governor", "camera
 
 export type JitterFeature = string;
 export type JitterValues = Record<JitterFeature, boolean>;
-export type ToolAction = "bluetooth-hal" | "resampler" | "resampler-reset" | "usb-period" | "usb-period-reset" | "jitter" | "jitter-reset";
+export type ToolAction = "bluetooth-hal" | "bluetooth-hal-reset" | "resampler" | "resampler-reset" | "usb-period" | "usb-period-reset" | "jitter" | "jitter-reset";
 
 export const defaultJitterValues = (): JitterValues => Object.fromEntries(
   jitterFeatures.map(([key]) => [key, false])

@@ -1,7 +1,7 @@
 use std::{fs, os::unix::fs::PermissionsExt, path::PathBuf, process::Command};
 
 #[test]
-fn uninstall_only_restores_configured_features_and_never_switches_bluetooth() {
+fn uninstall_delegates_once_to_cleanup_regardless_of_state_health() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let fixture = root
         .join("target")
@@ -20,10 +20,10 @@ fn uninstall_only_restores_configured_features_and_never_switches_bluetooth() {
     fs::write(&rm, "#!/bin/sh\nexit 0\n").unwrap();
     fs::set_permissions(&rm, fs::Permissions::from_mode(0o755)).unwrap();
     for (status, expected) in [
-        ("state_degraded=0\n", ""),
+        ("state_degraded=0\n", "cleanup\n"),
         ("state_degraded=0\nresampler_configured=1\nusb_period_configured=1\nbluetooth_hal_configured=1\njitter_effect_configured=1\njitter_wifi_configured=1\npolicy_configured=1\n",
-         "extra resampler reset\nextra usb-period reset\nextra jitter disable wifi\nextra jitter disable effect\nreset\n"),
-        ("state_degraded=1\nresampler_configured=1\njitter_effect_configured=1\n", ""),
+         "cleanup\n"),
+        ("state_degraded=1\nresampler_configured=1\njitter_effect_configured=1\n", "cleanup\n"),
     ] {
         fs::write(fixture.join("status"), status).unwrap();
         fs::write(fixture.join("calls"), "").unwrap();

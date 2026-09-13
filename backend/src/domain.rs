@@ -165,10 +165,10 @@ impl ExtraAction {
 
     pub(crate) fn script_args(&self) -> Vec<String> {
         match self {
-            Self::BluetoothHal { action } => vec![if action == "status" {
-                "--status".to_string()
-            } else {
-                action.clone()
+            Self::BluetoothHal { action } => vec![match action.as_str() {
+                "status" => "--status".to_string(),
+                "reset" => "--reset".to_string(),
+                _ => action.clone(),
             }],
             Self::ResamplerStatus => vec!["--status".to_string()],
             Self::ResamplerReset => vec!["--reset".to_string()],

@@ -18,8 +18,8 @@ use cli::ControllerCommand;
 use domain::{Action, Settings};
 use operation::{
     acquire_operation_lock, finish_internal_mutation, load_state_preflight,
-    render_operation_contract, run_extra, run_operation, run_reapply_batch_locked, OperationKind,
-    OperationResult, OperationState,
+    render_operation_contract, run_cleanup, run_extra, run_operation, run_reapply_batch_locked,
+    OperationKind, OperationResult, OperationState,
 };
 use paths::{ensure_state_layout, module_dir};
 use protocol::{print_generated, print_logs, print_schema, print_schema_json, print_status};
@@ -112,6 +112,7 @@ fn run(args: &[String]) -> Result<i32, String> {
         }
         ControllerCommand::Apply(settings) => run_operation(settings, Action::Apply),
         ControllerCommand::Reset => run_operation(Settings::default(), Action::Reset),
+        ControllerCommand::Cleanup => run_cleanup(),
         ControllerCommand::Extra(action) => run_extra(action),
         ControllerCommand::SetAutoReapply(enabled) => run_settings_command(enabled),
         ControllerCommand::Reapply => run_reapply(),
@@ -126,7 +127,7 @@ pub(crate) struct OperationPreflight {
 
 pub(crate) fn operation_preflight(args: &[String]) -> Option<OperationPreflight> {
     match args.get(1).map(String::as_str) {
-        Some("apply" | "reset" | "reapply") => Some(OperationPreflight {
+        Some("apply" | "reset" | "cleanup" | "reapply") => Some(OperationPreflight {
             action: args[1].clone(),
             kind: OperationKind::Mutation,
         }),

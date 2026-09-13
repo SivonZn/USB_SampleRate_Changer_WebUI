@@ -13,6 +13,7 @@ pub(crate) enum ControllerCommand {
     Preview(Settings),
     Apply(Settings),
     Reset,
+    Cleanup,
     Extra(ExtraAction),
     SetAutoReapply(bool),
     Reapply,
@@ -30,11 +31,12 @@ pub(crate) fn parse(args: &[String]) -> Result<ControllerCommand, String> {
         Some("preview") => Ok(ControllerCommand::Preview(parse_settings_args(&args[2..])?)),
         Some("apply") => Ok(ControllerCommand::Apply(parse_settings_args(&args[2..])?)),
         Some("reset") if args.len() == 2 => Ok(ControllerCommand::Reset),
+        Some("cleanup") if args.len() == 2 => Ok(ControllerCommand::Cleanup),
         Some("extra") => Ok(ControllerCommand::Extra(parse_extra_action(&args[2..])?)),
         Some("settings") => parse_settings_command(&args[2..]),
         Some("reapply") if args.len() == 2 => Ok(ControllerCommand::Reapply),
         _ => Err(format!(
-            "usage: {} {{schema [--json]|status|logs|generated|preview OPTIONS|apply OPTIONS|reset|extra TOOL ACTION|settings auto-reapply enable|disable|reapply}}",
+            "usage: {} {{schema [--json]|status|logs|generated|preview OPTIONS|apply OPTIONS|reset|cleanup|extra TOOL ACTION|settings auto-reapply enable|disable|reapply}}",
             args.first().map(String::as_str).unwrap_or("usbsrctl")
         )),
     }
@@ -118,9 +120,13 @@ pub(crate) fn parse_extra_action(args: &[String]) -> Result<ExtraAction, String>
     let action = args.get(1).map(String::as_str).ok_or_else(extra_usage)?;
     match tool {
         "bluetooth-hal" => {
-            if args.len() != 2 || (action != "status" && !BLUETOOTH_HAL_OPTIONS.contains(&action)) {
+            if args.len() != 2
+                || (action != "status"
+                    && action != "reset"
+                    && !BLUETOOTH_HAL_OPTIONS.contains(&action))
+            {
                 return Err(
-                    "bluetooth-hal action must be status, aosp, legacy, offload, or sysbta"
+                    "bluetooth-hal action must be status, reset, aosp, legacy, offload, or sysbta"
                         .to_string(),
                 );
             }

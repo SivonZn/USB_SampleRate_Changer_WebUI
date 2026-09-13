@@ -20,7 +20,10 @@ pub(crate) fn validate_settings(settings: &Settings, module_dir: &Path) -> Resul
         if settings.test || settings.amzm || settings.force_bluetooth_qti {
             return Err("Direct PCM dynamic inherits the system Bluetooth module; custom templates, Amazon mode and forced Bluetooth HAL are not supported".into());
         }
-        if !module_dir.join("core/templates/offload_direct_dynamic_template.xml").is_file() {
+        if !module_dir
+            .join("core/templates/offload_direct_dynamic_template.xml")
+            .is_file()
+        {
             return Err("Direct PCM dynamic template is missing".into());
         }
     }
@@ -52,7 +55,9 @@ pub(crate) fn validate_settings(settings: &Settings, module_dir: &Path) -> Resul
 
 fn validate_template(template: &str, module_dir: &Path) -> Result<(), String> {
     if template == "offload_direct_dynamic_template.xml" {
-        return Err("select offload-direct-dynamic to use the dynamic template with inheritance".into());
+        return Err(
+            "select offload-direct-dynamic to use the dynamic template with inheritance".into(),
+        );
     }
     if template.is_empty()
         || template.starts_with('/')
@@ -157,12 +162,26 @@ pub(crate) fn policy_command_summary(
     action: Action,
 ) -> String {
     if settings.policy == "offload-direct-dynamic" && matches!(action, Action::Apply) {
-        let mut args = vec!["_dynamic-direct".to_string(), "--policy".into(), settings.policy.clone(),
-            "--sample-rate".into(), settings.sample_rate.to_string(), "--bit-depth".into(), settings.bit_depth.clone()];
-        if settings.drc { args.push("--drc".into()); }
-        if settings.force_usbv2 { args.push("--force-usbv2".into()); }
+        let mut args = vec![
+            "_dynamic-direct".to_string(),
+            "--policy".into(),
+            settings.policy.clone(),
+            "--sample-rate".into(),
+            settings.sample_rate.to_string(),
+            "--bit-depth".into(),
+            settings.bit_depth.clone(),
+        ];
+        if settings.drc {
+            args.push("--drc".into());
+        }
+        if settings.force_usbv2 {
+            args.push("--force-usbv2".into());
+        }
         return std::iter::once(module_dir.join("usbsrctl").to_string_lossy().into_owned())
-            .chain(args).map(|arg| shell_quote(&arg)).collect::<Vec<_>>().join(" ");
+            .chain(args)
+            .map(|arg| shell_quote(&arg))
+            .collect::<Vec<_>>()
+            .join(" ");
     }
     command_for(
         &module_dir.join(CORE_DIR).join("USB_SampleRate_Changer.sh"),
@@ -260,19 +279,99 @@ pub(crate) fn render_policy_script(
     module_dir: &Path,
     action: Action,
 ) -> String {
-    render_policy_script_with_restart(settings, module_dir, action, settings.policy == "offload-direct-dynamic")
-}
-
-/// Limited-device cleanup must never restart legacy vendor HAL services.
-pub(crate) fn render_policy_script_with_restart(
-    settings: &Settings, module_dir: &Path, action: Action, audioserver_only: bool,
-) -> String {
     let command = policy_command_summary(settings, module_dir, action);
-    let restart = restart_command(module_dir, action, audioserver_only);
+    let restart = restart_command(module_dir);
 
     format!(
         "{GUARDED_SHELL_PREFIX}echo 'controller_upstream_started=1' >&2\n{command}\nstatus=$?\nif [ $status -eq 0 ]; then exec {restart}; else exit $status; fi\n"
     )
+}
+
+pub(crate) fn render_cleanup_script(
+    module_dir: &Path,
+    legacy_controls: bool,
+    cleanup_policy: bool,
+) -> (String, Vec<String>) {
+    let extras = module_dir.join(CORE_DIR).join("extras");
+    let steps = [
+        (
+            "bluetooth-hal",
+            extra_command_summary(
+                &extras.join("change-bluetooth-hal.sh"),
+                &ExtraAction::BluetoothHal {
+                    action: "reset".to_string(),
+                },
+            ),
+        ),
+        (
+            "resampler",
+            extra_command_summary(
+                &extras.join("change-resampling-quality.sh"),
+                &ExtraAction::ResamplerReset,
+            ),
+        ),
+        (
+            "usb-period",
+            extra_command_summary(
+                &extras.join("change-usb-period.sh"),
+                &ExtraAction::UsbPeriodReset,
+            ),
+        ),
+        (
+            "jitter",
+            extra_command_summary(
+                &extras.join("jitter-reducer.sh"),
+                &ExtraAction::JitterSet {
+                    enabled: false,
+                    feature: "all".to_string(),
+                    scheduler: None,
+                    tone: None,
+                    wifi_no_restart: false,
+                },
+            ),
+        ),
+        (
+            "policy",
+            policy_command_summary(&Settings::default(), module_dir, Action::Reset),
+        ),
+    ];
+    // Uninstall must obey the same HAL restrictions as interactive operations.
+    // Existing policy artifacts may still be removed on a limited device.
+    let steps: Vec<_> = steps
+        .into_iter()
+        .filter(|(label, _)| match *label {
+        "bluetooth-hal" | "usb-period" => legacy_controls,
+        "policy" => cleanup_policy,
+            _ => true,
+        })
+        .collect();
+    let restart = if legacy_controls {
+        extra_restart_command(
+        &extras.join("change-bluetooth-hal.sh"),
+        &ExtraAction::BluetoothHal {
+            action: "reset".to_string(),
+        },
+    )
+    .expect("Bluetooth HAL reset always requires an audio restart")
+    } else {
+        restart_command(module_dir)
+    };
+    let commands = steps
+        .iter()
+        .map(|(_, command)| command.clone())
+        .chain(std::iter::once(restart.clone()))
+        .collect();
+    let mut script = GUARDED_SHELL_PREFIX.to_string();
+    script.push_str("cleanup_failure=0\necho 'controller_upstream_started=1' >&2\n");
+    for (label, command) in steps {
+        script.push_str(&format!(
+            "echo 'cleanup_step_started={label}'\n{command}\ncleanup_status=$?\necho \"cleanup_step_exit={label}:$cleanup_status\"\nif [ \"$cleanup_failure\" -eq 0 ] && [ \"$cleanup_status\" -ne 0 ]; then cleanup_failure=$cleanup_status; fi\n"
+        ));
+    }
+    script.push_str(&format!(
+        "echo 'cleanup_restart_started=1'\n{restart}\ncleanup_status=$?\necho \"cleanup_restart_exit=$cleanup_status\"\nif [ \"$cleanup_failure\" -eq 0 ] && [ \"$cleanup_status\" -ne 0 ]; then cleanup_failure=$cleanup_status; fi\nexit \"$cleanup_failure\"\n"
+    ));
+    (script, commands)
 }
 
 pub(crate) fn render_extra_script(script: &Path, action: &ExtraAction) -> String {
@@ -294,20 +393,15 @@ pub(crate) fn render_extra_status_script(script: &Path, action: &ExtraAction) ->
     })
 }
 
-fn restart_command(module_dir: &Path, action: Action, dynamic_direct: bool) -> String {
+fn restart_command(module_dir: &Path) -> String {
     let reload = module_dir
         .join(CORE_DIR)
         .join("extras")
         .join("reload-audio-servers.sh");
-    let mut args = vec![
+    let args = [
         "/system/bin/sh".to_string(),
         reload.to_string_lossy().into_owned(),
     ];
-    // Dynamic mode changes AudioPolicy XML only. Restarting the vendor HAL
-    // after audioserver on Thor stalled AudioService during the device test.
-    if matches!(action, Action::Reset) && !dynamic_direct {
-        args.push("--all".to_string());
-    }
     args.iter()
         .map(String::as_str)
         .map(shell_quote)

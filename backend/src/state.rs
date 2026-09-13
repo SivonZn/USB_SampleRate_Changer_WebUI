@@ -714,6 +714,12 @@ pub(crate) fn update_stored_settings_for_extra(
     action: &ExtraAction,
 ) -> bool {
     match action {
+        ExtraAction::BluetoothHal { action } if action == "reset" => {
+            let defaults = StoredSettings::default();
+            settings.bluetooth_hal = defaults.bluetooth_hal;
+            settings.bluetooth_hal_configured = false;
+            true
+        }
         ExtraAction::BluetoothHal { action } if action != "status" => {
             settings.bluetooth_hal = action.clone();
             settings.bluetooth_hal_configured = true;

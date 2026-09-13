@@ -39,6 +39,7 @@ fn cli_restricts_aidl_before_any_script_or_state_access() {
         vec!["preview"],
         vec!["_dynamic-direct", "--policy", "offload-direct-dynamic"],
         vec!["extra", "bluetooth-hal", "offload"],
+        vec!["extra", "bluetooth-hal", "reset"],
         vec!["extra", "usb-period", "2250"],
     ] {
         let output = module.run(&args);

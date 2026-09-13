@@ -81,6 +81,10 @@ export class ControllerClient {
     return this.extra(["bluetooth-hal", hal]);
   }
 
+  resetBluetoothHal(): Promise<ControllerExecResult> {
+    return this.extra(["bluetooth-hal", "reset"]);
+  }
+
   applyResampler(settings: ResamplerSettings): Promise<ControllerExecResult> {
     if (settings.preset !== "custom") return this.extra(["resampler", settings.preset]);
     return this.extra([

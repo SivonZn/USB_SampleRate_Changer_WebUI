@@ -370,7 +370,7 @@ pub(crate) fn render_schema_json_with_capabilities(module_dir: &Path, caps: &Dev
     );
     out.push_str(",\"default\":\"offload\",\"recommended\":\"offload\"");
     out.push_str(",\"actions\":[");
-    for (index, value) in ["status", "aosp", "legacy", "offload", "sysbta"]
+    for (index, value) in ["status", "reset", "aosp", "legacy", "offload", "sysbta"]
         .iter()
         .enumerate()
     {
@@ -386,13 +386,17 @@ pub(crate) fn render_schema_json_with_capabilities(module_dir: &Path, caps: &Dev
             &format!("bluetooth_hal.action.{value}.label"),
         );
         out.push_str(",\"kind\":");
-        out.push_str(&json_quote(if *value == "status" {
-            "status"
-        } else {
-            "set"
+        out.push_str(&json_quote(match *value {
+            "status" => "status",
+            "reset" => "reset",
+            _ => "set",
         }));
         out.push_str(",\"selectable\":");
-        out.push_str(if *value == "status" { "false" } else { "true" });
+        out.push_str(if matches!(*value, "status" | "reset") {
+            "false"
+        } else {
+            "true"
+        });
         out.push('}');
     }
     out.push_str("],\"options\":[");
@@ -420,7 +424,7 @@ pub(crate) fn render_schema_json_with_capabilities(module_dir: &Path, caps: &Dev
         out.push_str(if *value == "offload" { "true" } else { "false" });
         out.push('}');
     }
-    write!(out, "],\"operations\":{{\"status\":true,\"set\":{},\"reset\":false}}}}", caps.legacy_controls).unwrap();
+    write!(out, "],\"operations\":{{\"status\":true,\"set\":{},\"reset\":{}}}}}", caps.legacy_controls, caps.legacy_controls).unwrap();
 
     out.push_str(",\"resampler\":{");
     out.push_str("\"available\":true,\"tool\":\"resampler\",");

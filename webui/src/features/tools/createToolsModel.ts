@@ -31,6 +31,7 @@ import {
 
 export type ToolsController = {
   setBluetoothHal: (hal: BluetoothHal) => Promise<OperationAwareExecResult>;
+  resetBluetoothHal: () => Promise<OperationAwareExecResult>;
   applyResampler: (settings: ResamplerSettings) => Promise<OperationAwareExecResult>;
   resetResampler: () => Promise<OperationAwareExecResult>;
   setUsbPeriod: (period: number) => Promise<OperationAwareExecResult>;
@@ -50,6 +51,7 @@ export type ToolsPageModel = {
   bluetoothHal: Accessor<BluetoothHal>;
   setBluetoothHal: (value: string) => void;
   applyBluetoothHal: () => Promise<void>;
+  resetBluetoothHal: () => Promise<void>;
 
   resamplerPreset: Accessor<ResamplerPreset>;
   resamplerBypass: Accessor<ResamplerBypass>;
@@ -214,6 +216,7 @@ export function createToolsModel(options: ToolsModelOptions): ToolsPageModel {
     successMessage: string
   ): Promise<void> {
     const permission: [SchemaToolName, string] = action === "bluetooth-hal" ? ["bluetoothHal", "set"]
+      : action === "bluetooth-hal-reset" ? ["bluetoothHal", "reset"]
       : action === "usb-period" ? ["usbPeriod", "set"]
       : action === "usb-period-reset" ? ["usbPeriod", "reset"]
       : action === "resampler-reset" ? ["resampler", "reset"]
@@ -251,6 +254,22 @@ export function createToolsModel(options: ToolsModelOptions): ToolsPageModel {
       "bluetooth-hal",
       () => options.controller.setBluetoothHal(bluetoothHal()),
       "tools.bluetoothHal.success"
+    );
+  }
+
+  async function resetBluetoothHal() {
+    if (options.canOperate?.("bluetoothHal", "reset") === false) return;
+    const accepted = await options.confirmations.confirm({
+      title: "tools.bluetoothHal.reset.title",
+      message: "tools.bluetoothHal.reset.message",
+      confirmLabel: "common.confirmReset"
+    });
+    if (!accepted) return;
+    await runMutation(
+      "tools.bluetooth-hal-reset",
+      "bluetooth-hal-reset",
+      () => options.controller.resetBluetoothHal(),
+      "tools.bluetoothHal.reset.success"
     );
   }
 
@@ -335,6 +354,7 @@ export function createToolsModel(options: ToolsModelOptions): ToolsPageModel {
     bluetoothHal,
     setBluetoothHal,
     applyBluetoothHal,
+    resetBluetoothHal,
     resamplerPreset,
     resamplerBypass,
     resamplerCheat,
