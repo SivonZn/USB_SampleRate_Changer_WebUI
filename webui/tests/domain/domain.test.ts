@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { deviceStatusFromControllerStatus, statusFlag } from "../../src/domain/device-status";
-import { defaultPolicySettings, policySettingsFromStatus, validatePolicySettings } from "../../src/domain/policy";
+import { defaultPolicySettings, policyOptionsForMode, policySettingsFromStatus, policyTemplateValue, policyWithDynamicCompatibility, validatePolicySettings } from "../../src/domain/policy";
 import {
   normalizeResamplerHalfLength,
   normalizeResamplerPercent,
@@ -23,6 +23,24 @@ describe("domain normalization", () => {
     expect(validatePolicySettings({ ...defaultPolicySettings(), rate: "custom", customRate: "44099" }).valid).toBe(false);
     expect(validatePolicySettings({ ...defaultPolicySettings(), rate: "custom", customRate: "768001" }).valid).toBe(false);
     expect(validatePolicySettings({ ...defaultPolicySettings(), rate: "custom", customRate: "44100.5" }).valid).toBe(false);
+  });
+
+  it("switches between separate standard and dynamic policy menus", () => {
+    const available = ["auto", "offload", "offload-direct", "offload-dynamic", "offload-direct-dynamic", "usb"];
+    expect(policyWithDynamicCompatibility("offload", true, available)).toBe("offload-dynamic");
+    expect(policyWithDynamicCompatibility("offload-dynamic", false, available)).toBe("offload");
+    expect(policyWithDynamicCompatibility("auto", true, available)).toBe("offload-direct-dynamic");
+    expect(policyWithDynamicCompatibility("usb", true, available)).toBe("offload-direct-dynamic");
+    expect(policyWithDynamicCompatibility("offload-direct-dynamic", false, available)).toBe("offload-direct");
+    expect(policyTemplateValue("offload-direct-dynamic")).toBe("offload-direct");
+    expect(policyTemplateValue("offload-direct")).toBe("offload-direct");
+    const options = available.map((value) => ({ value }));
+    expect(policyOptionsForMode(options, "offload").map(({ value }) => value)).toEqual([
+      "auto", "offload", "offload-direct", "usb"
+    ]);
+    expect(policyOptionsForMode(options, "offload-dynamic").map(({ value }) => value)).toEqual([
+      "offload-dynamic", "offload-direct-dynamic"
+    ]);
   });
 
   it("clamps and steps USB and resampler values", () => {

@@ -1,8 +1,14 @@
 export const policyOptionGroups = [
   { labelKey: "policy.group.default", values: ["auto"] },
-  { labelKey: "policy.group.bypass", values: ["bypass", "bypass-safer"] },
-  { labelKey: "policy.group.hardware", values: ["offload", "offload-hifi-playback", "offload-direct", "offload-safer"] },
-  { labelKey: "policy.group.compatibility", values: ["offload-direct-dynamic", "legacy", "safe", "safest", "safest-auto"] },
+  { labelKey: "policy.group.bypass", values: ["bypass", "bypass-safer", "bypass-dynamic", "bypass-safer-dynamic"] },
+  { labelKey: "policy.group.hardware", values: [
+    "offload", "offload-hifi-playback", "offload-direct", "offload-safer",
+    "offload-dynamic", "offload-hifi-playback-dynamic", "offload-direct-dynamic", "offload-safer-dynamic"
+  ] },
+  { labelKey: "policy.group.compatibility", values: [
+    "legacy", "safe", "safest", "safest-auto",
+    "legacy-dynamic", "safe-dynamic", "safest-dynamic", "safest-auto-dynamic"
+  ] },
   { labelKey: "policy.group.other", values: ["usb"] }
 ] as const;
 

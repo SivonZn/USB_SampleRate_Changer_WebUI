@@ -2043,4 +2043,12 @@ fn dynamic_direct_uses_dedicated_generator_for_apply_and_reapply() {
             .policy,
         "offload-direct-dynamic"
     );
+
+    let offload = Settings {
+        policy: "offload-dynamic".into(),
+        ..Settings::default()
+    };
+    let script = render_policy_script(&offload, &module_fixture(), Action::Apply);
+    assert!(script.contains("'_dynamic-direct' '--policy' 'offload-dynamic'"));
+    assert!(!script.contains("core/USB_SampleRate_Changer.sh"));
 }
