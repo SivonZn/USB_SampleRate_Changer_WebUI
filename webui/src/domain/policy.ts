@@ -27,6 +27,40 @@ export function displayRate(value: string): string {
   return Number.isFinite(numeric) ? `${numeric.toLocaleString()} Hz` : "status.unset";
 }
 
+export function policyTemplateValue(policy: string): string {
+  return policy.replace(/-dynamic$/, "");
+}
+
+export function policyOptionsForMode<T extends { value: string }>(
+  options: ReadonlyArray<T>,
+  policy: string
+): T[] {
+  const dynamic = policy.endsWith("-dynamic");
+  return options.filter((option) => option.value.endsWith("-dynamic") === dynamic);
+}
+
+export function policyWithDynamicCompatibility(
+  policy: string,
+  enabled: boolean,
+  availablePolicies: ReadonlyArray<string>
+): string {
+  const available = new Set(availablePolicies);
+  const dynamic = availablePolicies.filter((value) => value.endsWith("-dynamic"));
+  const standard = availablePolicies.filter((value) => !value.endsWith("-dynamic"));
+  if (enabled) {
+    if (policy.endsWith("-dynamic") && available.has(policy)) return policy;
+    const matching = `${policy}-dynamic`;
+    if (available.has(matching)) return matching;
+    if (available.has("offload-direct-dynamic")) return "offload-direct-dynamic";
+    return dynamic[0] ?? policy;
+  }
+  if (!policy.endsWith("-dynamic") && available.has(policy)) return policy;
+  const matching = policyTemplateValue(policy);
+  if (available.has(matching)) return matching;
+  if (available.has("auto")) return "auto";
+  return standard[0] ?? policy;
+}
+
 export function validatePolicySettings(settings: PolicySettings, limit = { min: 44100, max: 768000 }): PolicyValidationResult {
   const sampleRate = Number(selectedRate(settings));
   if (!Number.isInteger(sampleRate) || sampleRate < limit.min || sampleRate > limit.max) {

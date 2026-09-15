@@ -16,6 +16,7 @@ import {
 import { parseControllerSchema, type SchemaResponse } from "./controller-schema";
 
 export const CONTROLLER_PATH = "/data/adb/modules/usb_samplerate_changer_webui/usbsrctl";
+export const PROJECT_URL = "https://github.com/SivonZn/USB_SampleRate_Changer_WebUI";
 
 export type ControllerExecResult = ExecResult & {
   operation: ControllerOperationMetadata;
@@ -77,6 +78,10 @@ export class ControllerClient {
     return this.runController(["settings", "auto-reapply", enabled ? "enable" : "disable"]);
   }
 
+  setAudioserverPriority(enabled: boolean): Promise<ControllerExecResult> {
+    return this.runController(["settings", "audioserver-priority", enabled ? "enable" : "disable"]);
+  }
+
   setBluetoothHal(hal: BluetoothHal): Promise<ControllerExecResult> {
     return this.extra(["bluetooth-hal", hal]);
   }
@@ -131,6 +136,12 @@ export class ControllerClient {
 
   openBluetoothSettings(): Promise<ExecResult> {
     return this.execute("am start -a android.settings.BLUETOOTH_SETTINGS");
+  }
+
+  openProjectPage(): Promise<ExecResult> {
+    return this.execute(
+      `am start --user current -a android.intent.action.VIEW -c android.intent.category.BROWSABLE -d ${shellQuote(PROJECT_URL)}`
+    );
   }
 
   private async runController(args: readonly string[]): Promise<ControllerExecResult> {

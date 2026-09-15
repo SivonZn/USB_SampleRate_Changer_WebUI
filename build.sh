@@ -123,6 +123,21 @@ if [ ! -f "$STAGING_DIR/core/extras/reload-audio-servers.sh" ]; then
     printf 'Controller restart script missing after patch application\n' >&2
     exit 1
 fi
+for dynamic_template in \
+    offload_direct_dynamic_template.xml \
+    offload_dynamic_template.xml \
+    offload_hifi_playback_dynamic_template.xml \
+    offload_safer_dynamic_template.xml \
+    bypass_offload_dynamic_template.xml \
+    bypass_offload_safer_dynamic_template.xml \
+    legacy_dynamic_template.xml \
+    safest_dynamic_template.xml
+do
+    if [ ! -f "$STAGING_DIR/core/templates/$dynamic_template" ]; then
+        printf 'Dynamic Bluetooth template missing after patch application: %s\n' "$dynamic_template" >&2
+        exit 1
+    fi
+done
 
 sed "s/^version=.*/version=$MODULE_VERSION/" "$ROOT_DIR/module/module.prop" > "$STAGING_DIR/module.prop"
 cp "$ROOT_DIR/module/customize.sh" \

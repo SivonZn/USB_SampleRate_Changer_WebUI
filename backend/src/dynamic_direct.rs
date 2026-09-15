@@ -1,4 +1,4 @@
-//! Experimental, separate Direct PCM template. Never edits upstream templates.
+//! Experimental Bluetooth-compatible policy templates. Never edits upstream templates.
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::ops::Range;
@@ -12,7 +12,8 @@ use crate::domain::Settings;
 use crate::paths::{atomic_write, state_root};
 
 const GENERATED: &str = "/data/local/tmp/audio_conf_generated.xml";
-const MARKER: &str = "<!-- usbsrctl:direct-pcm-dynamic:v1 -->";
+const MARKER: &str = "<!-- usbsrctl:bluetooth-dynamic:v2 -->";
+const LEGACY_MARKER: &str = "<!-- usbsrctl:direct-pcm-dynamic:v1 -->";
 const BT_PLACEHOLDER: &str = "dynamic_bluetooth_placeholder";
 const A2DP: &[&str] = &[
     "AUDIO_DEVICE_OUT_BLUETOOTH_A2DP",
@@ -21,7 +22,28 @@ const A2DP: &[&str] = &[
 ];
 
 pub(crate) fn generated_is_dynamic() -> bool {
-    fs::read_to_string(GENERATED).is_ok_and(|text| text.contains(MARKER))
+    fs::read_to_string(GENERATED)
+        .is_ok_and(|text| text.contains(MARKER) || text.contains(LEGACY_MARKER))
+}
+
+pub(crate) fn template_name(policy: &str) -> Option<&'static str> {
+    match policy {
+        "bypass-dynamic" | "safest-auto-dynamic" => Some("bypass_offload_dynamic_template.xml"),
+        "bypass-safer-dynamic" | "safe-dynamic" => {
+            Some("bypass_offload_safer_dynamic_template.xml")
+        }
+        "offload-dynamic" => Some("offload_dynamic_template.xml"),
+        "offload-hifi-playback-dynamic" => Some("offload_hifi_playback_dynamic_template.xml"),
+        "offload-direct-dynamic" => Some("offload_direct_dynamic_template.xml"),
+        "offload-safer-dynamic" => Some("offload_safer_dynamic_template.xml"),
+        "legacy-dynamic" => Some("legacy_dynamic_template.xml"),
+        "safest-dynamic" => Some("safest_dynamic_template.xml"),
+        _ => None,
+    }
+}
+
+pub(crate) fn is_dynamic_policy(policy: &str) -> bool {
+    template_name(policy).is_some()
 }
 
 fn parse(text: &str) -> Result<Document<'_>, String> {
@@ -91,134 +113,202 @@ fn no_includes(node: Node<'_, '_>) -> Result<(), String> {
         .descendants()
         .any(|n| n.has_tag_name(("http://www.w3.org/2001/XInclude", "include")))
     {
-        return Err("Direct PCM dynamic v1 requires inline Primary/Bluetooth modules; nested XInclude is not supported".into());
+        return Err("dynamic Bluetooth policies require inline Primary/Bluetooth modules; nested XInclude is not supported".into());
     }
     Ok(())
 }
 
-/// Replace only A2DP sinks/routes and the Bluetooth module in the separate copy.
-/// Other template nodes, including direct_pcm/compressed_offload, are untouched.
+fn a2dp_device(node: Node<'_, '_>) -> bool {
+    node.has_tag_name("devicePort")
+        && node
+            .attribute("type")
+            .is_some_and(|kind| A2DP.contains(&kind))
+        && node.attribute("role") == Some("sink")
+}
+
+fn bluetooth_media_device(node: Node<'_, '_>) -> bool {
+    node.has_tag_name("devicePort")
+        && node
+            .attribute("type")
+            .is_some_and(|kind| A2DP.contains(&kind) || kind.starts_with("AUDIO_DEVICE_OUT_BLE_"))
+}
+
+fn flags(node: Node<'_, '_>) -> BTreeSet<String> {
+    node.attribute("flags")
+        .unwrap_or("")
+        .split_whitespace()
+        .map(str::to_owned)
+        .collect()
+}
+
+fn optional_primary_source(name: &str) -> bool {
+    matches!(
+        name,
+        "direct_pcm"
+            | "compressed_offload"
+            | "mmap_no_irq_out"
+            | "haptic"
+            | "voip_rx"
+            | "hifi_playback"
+    )
+}
+
+/// Replace Bluetooth portions of a separate template copy while preserving all
+/// non-Bluetooth template behavior. Templates either expose all three A2DP
+/// sinks in Primary or leave A2DP entirely to a dedicated Bluetooth module.
 fn inherit(stock: &str, template: &str) -> Result<String, String> {
     let source = parse(stock)?;
     let target = parse(template)?;
     if source.root_element().attribute("version") != Some("7.0") {
-        return Err("Direct PCM dynamic v1 supports HIDL policy XML version 7.0 only".into());
+        return Err("dynamic Bluetooth policies support HIDL policy XML version 7.0 only".into());
     }
     let sp = module(&source, "primary")?;
     let tp = module(&target, "primary")?;
     no_includes(sp)?;
-    let source_ports = child(sp, "devicePorts")?;
     let target_ports = child(tp, "devicePorts")?;
-    let source_mixes = child(sp, "mixPorts")?;
-    let target_mixes = child(tp, "mixPorts")?;
     let mut edits = Vec::new();
-    let mut inherited_aux = BTreeSet::new();
-    for device_type in A2DP {
-        let matches = |n: &Node<'_, '_>| {
-            n.has_tag_name("devicePort")
-                && n.attribute("type") == Some(*device_type)
-                && n.attribute("role") == Some("sink")
-        };
-        let sd = unique(source_ports.children().filter(matches), device_type)?;
-        let td = unique(target_ports.children().filter(matches), device_type)?;
-        let formats = attr(sd, "encodedFormats")?;
-        if !formats
-            .split_whitespace()
-            .any(|f| f.starts_with("AUDIO_FORMAT_") && f != "AUDIO_FORMAT_FORCE_AOSP")
+    let target_a2dp: Vec<_> = target_ports
+        .children()
+        .filter(|node| a2dp_device(*node))
+        .collect();
+    let primary_a2dp = match target_a2dp.len() {
+        0 => false,
+        3 if A2DP.iter().all(|kind| {
+            target_a2dp
+                .iter()
+                .filter(|node| node.attribute("type") == Some(*kind))
+                .count()
+                == 1
+        }) =>
         {
-            return Err(format!("{device_type}: no system Primary offload codecs"));
+            true
         }
-        let source_tag = attr(sd, "tagName")?;
-        let target_tag = attr(td, "tagName")?;
-        edits.push((td.range(), renamed_node(stock, sd, "tagName", &target_tag)?));
-        let sr = unique(
-            child(sp, "routes")?.children().filter(|n| {
-                n.has_tag_name("route") && n.attribute("sink") == Some(source_tag.as_str())
-            }),
-            "system A2DP route",
-        )?;
-        let tr = unique(
-            child(tp, "routes")?.children().filter(|n| {
-                n.has_tag_name("route") && n.attribute("sink") == Some(target_tag.as_str())
-            }),
-            "template A2DP route",
-        )?;
-        if sr.attribute("type") != Some("mix") {
-            return Err("unsupported A2DP route type".into());
+        count => {
+            return Err(format!(
+                "template Primary has partial A2DP topology ({count}/3); original policy retained"
+            ));
         }
-        let mut mapped = Vec::new();
-        for name in attr(sr, "sources")?.split(',').map(str::trim) {
-            let sm = unique(
-                source_mixes.children().filter(|n| {
+    };
+
+    if primary_a2dp {
+        let source_ports = child(sp, "devicePorts")?;
+        let source_mixes = child(sp, "mixPorts")?;
+        let target_mixes = child(tp, "mixPorts")?;
+        let source_routes = child(sp, "routes")?;
+        let target_routes = child(tp, "routes")?;
+        let mut inherited_aux = BTreeSet::new();
+        for device_type in A2DP {
+            let matches =
+                |n: &Node<'_, '_>| a2dp_device(*n) && n.attribute("type") == Some(*device_type);
+            let sd = unique(source_ports.children().filter(matches), device_type)?;
+            let td = unique(target_ports.children().filter(matches), device_type)?;
+            let formats = attr(sd, "encodedFormats")?;
+            if !formats
+                .split_whitespace()
+                .any(|f| f.starts_with("AUDIO_FORMAT_") && f != "AUDIO_FORMAT_FORCE_AOSP")
+            {
+                return Err(format!("{device_type}: no system Primary offload codecs"));
+            }
+            let source_tag = attr(sd, "tagName")?;
+            let target_tag = attr(td, "tagName")?;
+            edits.push((td.range(), renamed_node(stock, sd, "tagName", &target_tag)?));
+            let sr = unique(
+                source_routes.children().filter(|n| {
+                    n.has_tag_name("route") && n.attribute("sink") == Some(source_tag.as_str())
+                }),
+                "system A2DP route",
+            )?;
+            let tr = unique(
+                target_routes.children().filter(|n| {
+                    n.has_tag_name("route") && n.attribute("sink") == Some(target_tag.as_str())
+                }),
+                "template A2DP route",
+            )?;
+            if sr.attribute("type") != Some("mix") {
+                return Err("unsupported A2DP route type".into());
+            }
+            let mut mapped = Vec::new();
+            for name in attr(sr, "sources")?.split(',').map(str::trim) {
+                let sm = unique(
+                    source_mixes.children().filter(|n| {
+                        n.has_tag_name("mixPort")
+                            && n.attribute("name") == Some(name)
+                            && n.attribute("role") == Some("source")
+                    }),
+                    "system route source",
+                )?;
+                let mapped_name = if target_mixes.children().any(|n| {
                     n.has_tag_name("mixPort")
                         && n.attribute("name") == Some(name)
                         && n.attribute("role") == Some("source")
-                }),
-                "system route source",
-            )?;
-            let exact: Vec<_> = target_mixes
-                .children()
-                .filter(|n| n.has_tag_name("mixPort") && n.attribute("name") == Some(name))
-                .collect();
-            let mapped_name = if exact.len() == 1 {
-                name
-            } else if name == "deep_buffer" {
-                "deep buffer"
-            } else {
-                return Err(format!(
-                    "cannot map system A2DP source {name}; original policy retained"
-                ));
-            };
-            let tm = unique(
-                target_mixes.children().filter(|n| {
-                    n.has_tag_name("mixPort")
-                        && n.attribute("name") == Some(mapped_name)
-                        && n.attribute("role") == Some("source")
-                }),
-                "mapped route source",
-            )?;
-            let flags = |n: Node<'_, '_>| {
-                n.attribute("flags")
-                    .unwrap_or("")
-                    .split_whitespace()
-                    .map(str::to_owned)
-                    .collect::<BTreeSet<_>>()
-            };
-            if name == "voip_rx" {
-                if inherited_aux.insert(name.to_owned()) {
-                    edits.push((tm.range(), stock[sm.range()].to_owned()));
+                }) {
+                    name
+                } else if name == "deep_buffer"
+                    && target_mixes.children().any(|n| {
+                        n.has_tag_name("mixPort")
+                            && n.attribute("name") == Some("deep buffer")
+                            && n.attribute("role") == Some("source")
+                    })
+                {
+                    "deep buffer"
+                } else if optional_primary_source(name) {
+                    continue;
+                } else {
+                    return Err(format!(
+                        "cannot map system A2DP source {name}; original policy retained"
+                    ));
+                };
+                let tm = unique(
+                    target_mixes.children().filter(|n| {
+                        n.has_tag_name("mixPort")
+                            && n.attribute("name") == Some(mapped_name)
+                            && n.attribute("role") == Some("source")
+                    }),
+                    "mapped route source",
+                )?;
+                if name == "voip_rx" {
+                    if inherited_aux.insert(name.to_owned()) {
+                        edits.push((tm.range(), stock[sm.range()].to_owned()));
+                    }
+                } else if flags(sm) != flags(tm) {
+                    return Err(format!(
+                        "incompatible output flags for {name} -> {mapped_name}"
+                    ));
                 }
-            } else if flags(sm) != flags(tm) {
-                return Err(format!(
-                    "incompatible output flags for {name} -> {mapped_name}"
-                ));
+                mapped.push(mapped_name.to_owned());
             }
-            mapped.push(mapped_name.to_owned());
+            if mapped.is_empty() {
+                return Err("system A2DP route has no compatible template source".into());
+            }
+            edits.push((
+                tr.range(),
+                format!(
+                    "<route type=\"mix\" sink=\"{}\" sources=\"{}\"/>",
+                    escape(&target_tag),
+                    escape(&mapped.join(","))
+                ),
+            ));
         }
-        edits.push((
-            tr.range(),
-            format!(
-                "<route type=\"mix\" sink=\"{}\" sources=\"{}\"/>",
-                escape(&target_tag),
-                escape(&mapped.join(","))
-            ),
-        ));
     }
     // Preserve vendor fallback semantics (e.g. FORCE_AOSP) and dynamic profiles.
     // No generic module-name guess or codec list is substituted here.
     let bluetooth: Vec<_> = source
         .descendants()
         .filter(|n| {
-            n.has_tag_name("module")
-                && *n != sp
-                && n.descendants().any(|d| {
-                    d.has_tag_name("devicePort")
-                        && d.attribute("type").is_some_and(|t| A2DP.contains(&t))
-                })
+            n.has_tag_name("module") && *n != sp && n.descendants().any(bluetooth_media_device)
         })
         .collect();
-    if bluetooth.is_empty() {
-        return Err("system inline Bluetooth A2DP module not found".into());
+    if !primary_a2dp
+        && A2DP.iter().any(|kind| {
+            bluetooth
+                .iter()
+                .flat_map(|node| node.descendants())
+                .filter(|node| a2dp_device(*node) && node.attribute("type") == Some(*kind))
+                .count()
+                != 1
+        })
+    {
+        return Err("system dedicated Bluetooth module lacks a complete A2DP topology".into());
     }
     for node in &bluetooth {
         no_includes(*node)?;
@@ -379,7 +469,7 @@ fn baseline(
     let snapshot = snapshot_path(target, identity, directory);
     if roots.is_empty() {
         let original = read(target)?;
-        if original.contains(MARKER) {
+        if original.contains(MARKER) || original.contains(LEGACY_MARKER) {
             return Err("dynamic policy is not a valid system baseline; reset first".into());
         }
         parse(&original)?;
@@ -394,7 +484,7 @@ fn baseline(
     }
     if roots.len() != 1 || !roots[0].ends_with("/audio_conf_generated.xml") {
         return Err(
-            "audio policy has an unrecognized overlay; reset it before using Direct PCM dynamic"
+            "audio policy has an unrecognized overlay; reset it before using a dynamic Bluetooth policy"
                 .into(),
         );
     }
@@ -467,9 +557,8 @@ fn render(
 
 pub(crate) fn apply(settings: &Settings, module_dir: &Path) -> Result<(), String> {
     crate::scripts::validate_settings(settings, module_dir)?;
-    if settings.policy != "offload-direct-dynamic" {
-        return Err("internal dynamic entry requires dynamic policy".into());
-    }
+    let template_name = template_name(&settings.policy)
+        .ok_or("internal dynamic entry requires a dynamic Bluetooth policy")?;
     let ns = crate::android::namespace_info();
     if ns.is_global() != Some(true) {
         return Err("dynamic policy must run in the global mount namespace".into());
@@ -489,7 +578,7 @@ pub(crate) fn apply(settings: &Settings, module_dir: &Path) -> Result<(), String
         .iter()
         .any(|prefix| target_text.starts_with(prefix))
     {
-        return Err("dynamic v1 requires a vendor/odm HIDL XML policy".into());
+        return Err("dynamic Bluetooth policies require a vendor/odm HIDL XML policy".into());
     }
     let roots = mounted_roots(&read(Path::new("/proc/self/mountinfo"))?, &target_text);
     let fingerprint = command("getprop", &["ro.build.fingerprint"])?;
@@ -518,7 +607,7 @@ pub(crate) fn apply(settings: &Settings, module_dir: &Path) -> Result<(), String
     } else {
         "usb"
     };
-    let template = read(&module_dir.join("core/templates/offload_direct_dynamic_template.xml"))?;
+    let template = read(&module_dir.join("core/templates").join(template_name))?;
     let rendered = render(&template, settings, usb, &volume, &default_volume)?;
     let generated = inherit(&stock, &rendered)?;
     let candidate = directory.join("candidate.xml");
@@ -567,7 +656,7 @@ pub(crate) fn apply(settings: &Settings, module_dir: &Path) -> Result<(), String
         }
         return Err(error);
     }
-    println!("dynamic_direct=1\ndynamic_source={}\ndynamic_source_sha256={}\ndynamic_a2dp_ports=3\ndynamic_routes=3\ndynamic_candidate={}\ndynamic_xml_sha256={}", target.display(), digest(&stock), candidate.display(), digest(&generated));
+    println!("dynamic_direct=1\ndynamic_policy={}\ndynamic_template={}\ndynamic_source={}\ndynamic_source_sha256={}\ndynamic_candidate={}\ndynamic_xml_sha256={}", settings.policy, template_name, target.display(), digest(&stock), candidate.display(), digest(&generated));
     Ok(())
 }
 
@@ -575,24 +664,59 @@ pub(crate) fn apply(settings: &Settings, module_dir: &Path) -> Result<(), String
 mod tests {
     use super::*;
     const STOCK: &str = include_str!("../tests/fixtures/thor-stock-policy.xml");
-    // Read the exact new-file payload installed by the build patch.
-    fn template() -> String {
-        include_str!("../../patches/0005-add-dynamic-direct-pcm-template.patch")
+    const DYNAMIC_POLICIES: &[&str] = &[
+        "bypass-dynamic",
+        "bypass-safer-dynamic",
+        "offload-dynamic",
+        "offload-hifi-playback-dynamic",
+        "offload-direct-dynamic",
+        "offload-safer-dynamic",
+        "legacy-dynamic",
+        "safe-dynamic",
+        "safest-dynamic",
+        "safest-auto-dynamic",
+    ];
+
+    // Read an exact new-file payload installed by the build patch.
+    fn template_named(name: &str) -> String {
+        let patch = include_str!("../../patches/0005-add-dynamic-direct-pcm-template.patch");
+        let header = format!("diff --git a/templates/{name} b/templates/{name}");
+        patch
+            .split_once(&header)
+            .unwrap_or_else(|| panic!("missing patch section for {name}"))
+            .1
             .lines()
             .skip_while(|line| !line.starts_with("@@ "))
             .skip(1)
+            .take_while(|line| !line.starts_with("diff --git "))
             .map(|line| format!("{}\n", line.strip_prefix('+').expect("new-file patch line")))
             .collect()
     }
-    fn rendered() -> String {
+    fn rendered_named(name: &str) -> String {
         render(
-            &template(),
+            &template_named(name),
             &Settings::default(),
             "usb",
             "/vendor/etc/audio_policy_volumes.xml",
             "/vendor/etc/default_volume_tables.xml",
         )
         .unwrap()
+    }
+    fn rendered() -> String {
+        rendered_named("offload_direct_dynamic_template.xml")
+    }
+
+    #[test]
+    fn every_dynamic_policy_maps_to_a_valid_inherited_template() {
+        for policy in DYNAMIC_POLICIES {
+            let name = template_name(policy).unwrap();
+            let generated = inherit(STOCK, &rendered_named(name))
+                .unwrap_or_else(|error| panic!("{policy}/{name}: {error}"));
+            assert!(generated.contains(MARKER), "{policy}");
+            assert!(module(&parse(&generated).unwrap(), "bluetooth_qti").is_ok());
+        }
+        assert!(template_name("auto").is_none());
+        assert!(template_name("usb").is_none());
     }
     #[test]
     fn thor_inherits_lhdc_profiles_routes_and_vendor_fallback() {
@@ -662,6 +786,14 @@ mod tests {
         assert!(inherit(&included, &rendered())
             .unwrap_err()
             .contains("XInclude"));
+
+        let partial = rendered().replace(
+            "AUDIO_DEVICE_OUT_BLUETOOTH_A2DP_SPEAKER",
+            "AUDIO_DEVICE_OUT_SPEAKER",
+        );
+        assert!(inherit(STOCK, &partial)
+            .unwrap_err()
+            .contains("partial A2DP topology"));
     }
     #[test]
     fn rejects_missing_codec_and_dangling_template_route() {

@@ -28,6 +28,7 @@ describe("ControllerClient typed methods", () => {
     await client.diagnose("alsa", true);
     await client.setJitter({ feature: "io", enabled: true, ioScheduler: "bfq", ioTone: "boost" });
     await client.setJitter({ feature: "wifi", enabled: true, wifiNoRestart: true });
+    await client.openProjectPage();
 
     expect(commands).toEqual([
       "'/ctl' 'apply' '--policy' 'auto' '--sample-rate' '123456' '--bit-depth' '32' '--drc'",
@@ -37,7 +38,8 @@ describe("ControllerClient typed methods", () => {
       "'/ctl' 'extra' 'usb-period' '2250'",
       "'/ctl' 'extra' 'diagnose' 'alsa' 'all'",
       "'/ctl' 'extra' 'jitter' 'enable' 'io' 'bfq' 'boost'",
-      "'/ctl' 'extra' 'jitter' 'enable' 'wifi' 'no-restart'"
+      "'/ctl' 'extra' 'jitter' 'enable' 'wifi' 'no-restart'",
+      "am start --user current -a android.intent.action.VIEW -c android.intent.category.BROWSABLE -d 'https://github.com/SivonZn/USB_SampleRate_Changer_WebUI'"
     ]);
   });
 

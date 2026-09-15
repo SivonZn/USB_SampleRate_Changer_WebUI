@@ -151,6 +151,23 @@ fn mutation_preflight_errors_have_machine_readable_not_started_fields() {
             "operation_state=not_started\n"
         )
     );
+    let audioserver_priority = operation_preflight(&[
+        "usbsrctl".to_string(),
+        "settings".to_string(),
+        "audioserver-priority".to_string(),
+        "enable".to_string(),
+    ])
+    .unwrap();
+    assert_eq!(
+        operation_not_started_fields(&audioserver_priority),
+        concat!(
+            "controller_action=settings-audioserver-priority\n",
+            "operation_kind=mutation\n",
+            "operation_result=not_started\n",
+            "operation_applied=0\n",
+            "operation_state=not_started\n"
+        )
+    );
 }
 
 #[test]
@@ -449,6 +466,18 @@ fn schema_cli_keeps_text_mode_and_adds_json_mode() {
         "--yaml".to_string(),
     ])
     .is_err());
+}
+
+#[test]
+fn audioserver_priority_setting_is_a_controller_command() {
+    let command = parse(&[
+        "usbsrctl".to_string(),
+        "settings".to_string(),
+        "audioserver-priority".to_string(),
+        "enable".to_string(),
+    ])
+    .unwrap();
+    assert_eq!(command, ControllerCommand::SetAudioserverPriority(true));
 }
 
 #[test]
@@ -2043,6 +2072,14 @@ fn dynamic_direct_uses_dedicated_generator_for_apply_and_reapply() {
             .policy,
         "offload-direct-dynamic"
     );
+
+    let offload = Settings {
+        policy: "offload-dynamic".into(),
+        ..Settings::default()
+    };
+    let script = render_policy_script(&offload, &module_fixture(), Action::Apply);
+    assert!(script.contains("'_dynamic-direct' '--policy' 'offload-dynamic'"));
+    assert!(!script.contains("core/USB_SampleRate_Changer.sh"));
 }
 
 #[test]

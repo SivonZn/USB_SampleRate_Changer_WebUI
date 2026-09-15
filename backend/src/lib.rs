@@ -1,4 +1,5 @@
 mod android;
+mod audioserver_priority;
 mod catalog;
 mod capabilities;
 mod cli;
@@ -78,6 +79,21 @@ fn run(args: &[String]) -> Result<i32, String> {
         dynamic_direct::apply(&settings, &module_dir)?;
         return Ok(0);
     }
+    match args.get(1).map(String::as_str) {
+        Some("_audioserver-priority-watch") if args.len() == 2 => {
+            audioserver_priority::watch_loop()?;
+            return Ok(0);
+        }
+        Some("_audioserver-priority-start") if args.len() == 2 => {
+            audioserver_priority::start_watch()?;
+            return Ok(0);
+        }
+        Some("_audioserver-priority-stop") if args.len() == 2 => {
+            audioserver_priority::stop_watch()?;
+            return Ok(0);
+        }
+        _ => {}
+    }
     match cli::parse(args)? {
         ControllerCommand::Schema { json } => {
             let module_dir = module_dir()?;
@@ -115,8 +131,46 @@ fn run(args: &[String]) -> Result<i32, String> {
         ControllerCommand::Cleanup => run_cleanup(),
         ControllerCommand::Extra(action) => run_extra(action),
         ControllerCommand::SetAutoReapply(enabled) => run_settings_command(enabled),
+        ControllerCommand::SetAudioserverPriority(enabled) => {
+            run_audioserver_priority_setting(enabled)
+        }
         ControllerCommand::Reapply => run_reapply(),
     }
+}
+
+fn run_audioserver_priority_setting(enabled: bool) -> Result<i32, String> {
+    ensure_state_layout()?;
+    let (code, change) = {
+        // The feature owns a separate marker and baseline, so it remains
+        // possible to disable it even when settings.conf is degraded.
+        let _lock = acquire_operation_lock()?;
+        let change = audioserver_priority::set_enabled(enabled)?;
+        let code = finish_internal_mutation(
+            "settings-audioserver-priority",
+            format!(
+                "usbsrctl settings audioserver-priority {}",
+                if enabled { "enable" } else { "disable" }
+            ),
+        )?;
+        (code, change)
+    };
+
+    let monitor_result = if enabled {
+        audioserver_priority::start_watch()
+    } else {
+        audioserver_priority::stop_watch()
+    };
+    if let Err(error) = monitor_result {
+        eprintln!("WARNING: audioserver priority monitor update failed: {error}");
+    }
+    println!("audioserver_priority={}", bool_number(enabled));
+    println!(
+        "audioserver_priority_target={}",
+        audioserver_priority::TARGET_NICE
+    );
+    println!("audioserver_priority_adjusted={}", change.adjusted);
+    println!("audioserver_priority_restored={}", change.restored);
+    Ok(code)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -137,6 +191,7 @@ pub(crate) fn operation_preflight(args: &[String]) -> Option<OperationPreflight>
                 args.get(3).map(String::as_str),
             ) {
                 (Some("auto-reapply"), _) => "settings-auto-reapply".to_string(),
+                (Some("audioserver-priority"), _) => "settings-audioserver-priority".to_string(),
                 _ => "settings".to_string(),
             },
             kind: OperationKind::Mutation,

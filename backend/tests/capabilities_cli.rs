@@ -56,6 +56,29 @@ fn cli_restricts_aidl_before_any_script_or_state_access() {
             assert!(stdout.contains("operation_result=not_started"));
         }
     }
+    // New dynamic policy variants must not bypass the existing device gate.
+    for policy in [
+        "offload-direct-dynamic",
+        "offload-dynamic",
+        "offload-hifi-playback-dynamic",
+        "offload-safer-dynamic",
+        "bypass-dynamic",
+        "bypass-safer-dynamic",
+        "legacy-dynamic",
+        "safest-dynamic",
+        "safe-dynamic",
+        "safest-auto-dynamic",
+    ] {
+        for command in ["apply", "preview", "_dynamic-direct"] {
+            let output = module.run(&[command, "--policy", policy]);
+            assert_eq!(output.status.code(), Some(2), "{command} {policy}");
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains("unsupported_device_capability"),
+                "{command} {policy}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
     let output = module.run(&["schema", "--json"]);
     assert!(output.status.success());
     let schema = String::from_utf8(output.stdout).unwrap();

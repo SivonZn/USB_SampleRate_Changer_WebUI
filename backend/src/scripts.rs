@@ -16,15 +16,14 @@ fi\n\
 echo \"global namespace verified: $self_ns\"\n";
 
 pub(crate) fn validate_settings(settings: &Settings, module_dir: &Path) -> Result<(), String> {
-    if settings.policy == "offload-direct-dynamic" {
+    if let Some(template) = crate::dynamic_direct::template_name(&settings.policy) {
         if settings.test || settings.amzm || settings.force_bluetooth_qti {
-            return Err("Direct PCM dynamic inherits the system Bluetooth module; custom templates, Amazon mode and forced Bluetooth HAL are not supported".into());
+            return Err("dynamic Bluetooth policies inherit the system Bluetooth configuration; custom templates, Amazon mode and forced Bluetooth HAL are not supported".into());
         }
-        if !module_dir
-            .join("core/templates/offload_direct_dynamic_template.xml")
-            .is_file()
-        {
-            return Err("Direct PCM dynamic template is missing".into());
+        if !module_dir.join("core/templates").join(template).is_file() {
+            return Err(format!(
+                "dynamic Bluetooth policy template is missing: {template}"
+            ));
         }
     }
     if policy_flag(&settings.policy).is_none() {
@@ -54,10 +53,8 @@ pub(crate) fn validate_settings(settings: &Settings, module_dir: &Path) -> Resul
 }
 
 fn validate_template(template: &str, module_dir: &Path) -> Result<(), String> {
-    if template == "offload_direct_dynamic_template.xml" {
-        return Err(
-            "select offload-direct-dynamic to use the dynamic template with inheritance".into(),
-        );
+    if template.ends_with("_dynamic_template.xml") {
+        return Err("select a Bluetooth-inheriting policy to use a generated template".into());
     }
     if template.is_empty()
         || template.starts_with('/')
@@ -161,7 +158,8 @@ pub(crate) fn policy_command_summary(
     module_dir: &Path,
     action: Action,
 ) -> String {
-    if settings.policy == "offload-direct-dynamic" && matches!(action, Action::Apply) {
+    if crate::dynamic_direct::is_dynamic_policy(&settings.policy) && matches!(action, Action::Apply)
+    {
         let mut args = vec![
             "_dynamic-direct".to_string(),
             "--policy".into(),

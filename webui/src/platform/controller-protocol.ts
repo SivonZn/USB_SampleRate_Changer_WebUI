@@ -87,6 +87,7 @@ export type ControllerStatus = {
   io_tone?: string;
   wifi_no_restart?: string;
   auto_reapply?: string;
+  audioserver_priority?: string;
   [key: `jitter_${string}`]: string | string[] | undefined;
 };
 
