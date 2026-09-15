@@ -103,6 +103,10 @@ fn print_stored_settings(settings: &StoredSettings) {
     println!("io_tone={}", settings.io_tone);
     println!("wifi_no_restart={}", bool_number(settings.wifi_no_restart));
     println!("auto_reapply={}", bool_number(settings.auto_reapply));
+    println!(
+        "audioserver_priority={}",
+        bool_number(audioserver_priority_enabled())
+    );
     for feature in JITTER_FEATURES {
         println!(
             "jitter_{feature}={}",
@@ -125,6 +129,10 @@ fn print_stored_settings(settings: &StoredSettings) {
             )
         );
     }
+}
+
+fn audioserver_priority_enabled() -> bool {
+    crate::audioserver_priority::enabled()
 }
 
 fn upstream_script_version(module_dir: &Path) -> String {

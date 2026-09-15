@@ -6,6 +6,11 @@ LOG_ROOT="/data/local/tmp/usb_samplerate_changer_webui"
 reset_failed=0
 
 if [ -x "$MODDIR/usbsrctl" ]; then
+    "$MODDIR/usbsrctl" settings audioserver-priority disable >/dev/null 2>&1 || reset_failed=1
+    "$MODDIR/usbsrctl" _audioserver-priority-stop >/dev/null 2>&1 || true
+fi
+
+if [ -x "$MODDIR/usbsrctl" ]; then
     # Cleanup ignores controller state health, runs every fixed reset and
     # restarts audioserver once before the module files disappear.
     # Bluetooth HAL properties are restored from their ROM-derived baseline.

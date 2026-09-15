@@ -73,20 +73,12 @@ pub(crate) const POLICIES: &[(&str, &str, &str)] = &[
     ),
     ("offload-direct", "--offload-direct", "Direct PCM"),
     ("offload-safer", "--offload-safer", "USB Offload 兼容模式"),
-    (
-        "offload-direct-dynamic",
-        "--offload-direct",
-        "Direct PCM",
-    ),
+    ("offload-direct-dynamic", "--offload-direct", "Direct PCM"),
     ("legacy", "--legacy", "旧版蓝牙HAL"),
     ("safe", "--safe", "保守兼容"),
     ("safest", "--safest", "最大兼容"),
     ("safest-auto", "--safest-auto", "最大兼容 - USB"),
-    (
-        "bypass-dynamic",
-        "--bypass-offload",
-        "绕过硬件 Offload",
-    ),
+    ("bypass-dynamic", "--bypass-offload", "绕过硬件 Offload"),
     (
         "bypass-safer-dynamic",
         "--bypass-offload-safer",
@@ -106,11 +98,7 @@ pub(crate) const POLICIES: &[(&str, &str, &str)] = &[
     ("legacy-dynamic", "--legacy", "旧版蓝牙HAL"),
     ("safe-dynamic", "--safe", "保守兼容"),
     ("safest-dynamic", "--safest", "最大兼容"),
-    (
-        "safest-auto-dynamic",
-        "--safest-auto",
-        "最大兼容 - USB",
-    ),
+    ("safest-auto-dynamic", "--safest-auto", "最大兼容 - USB"),
     ("usb", "--usb-only", "仅USB"),
 ];
 

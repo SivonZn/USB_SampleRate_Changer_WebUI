@@ -54,9 +54,7 @@ pub(crate) fn validate_settings(settings: &Settings, module_dir: &Path) -> Resul
 
 fn validate_template(template: &str, module_dir: &Path) -> Result<(), String> {
     if template.ends_with("_dynamic_template.xml") {
-        return Err(
-            "select a Bluetooth-inheriting policy to use a generated template".into(),
-        );
+        return Err("select a Bluetooth-inheriting policy to use a generated template".into());
     }
     if template.is_empty()
         || template.starts_with('/')

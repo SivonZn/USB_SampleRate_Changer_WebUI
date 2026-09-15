@@ -122,6 +122,7 @@ describe("device status mapping", () => {
       bluetooth_a2dp_state: "unknown",
       namespace_ok: "0",
       auto_reapply: "1",
+      audioserver_priority: "1",
       last_exit: "72",
       state_degraded: "1",
       state_degraded_reason: "state persist failed",
@@ -140,6 +141,7 @@ describe("device status mapping", () => {
     expect(status.system.a2dpState).toBe("unknown");
     expect(status.system.namespaceOk).toBe(false);
     expect(status.autoReapply).toBe(true);
+    expect(status.audioserverPriority).toBe(true);
     expect(status.system.lastExit).toBe(72);
     expect(status.system.stateDegraded).toBe(true);
     expect(status.system.stateDegradedReason).toBe("state persist failed");
