@@ -134,7 +134,7 @@ for dynamic_template in \
     safest_dynamic_template.xml
 do
     if [ ! -f "$STAGING_DIR/core/templates/$dynamic_template" ]; then
-        printf 'Dynamic Bluetooth template missing after patch application: %s\n' "$dynamic_template" >&2
+        printf 'Dynamic compatibility template missing after patch application: %s\n' "$dynamic_template" >&2
         exit 1
     fi
 done

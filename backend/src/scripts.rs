@@ -18,11 +18,11 @@ echo \"global namespace verified: $self_ns\"\n";
 pub(crate) fn validate_settings(settings: &Settings, module_dir: &Path) -> Result<(), String> {
     if let Some(template) = crate::dynamic_direct::template_name(&settings.policy) {
         if settings.test || settings.amzm || settings.force_bluetooth_qti {
-            return Err("dynamic Bluetooth policies inherit the system Bluetooth configuration; custom templates, Amazon mode and forced Bluetooth HAL are not supported".into());
+            return Err("dynamic compatibility policies inherit the system speaker and Bluetooth configuration; custom templates, Amazon mode and forced Bluetooth HAL are not supported".into());
         }
         if !module_dir.join("core/templates").join(template).is_file() {
             return Err(format!(
-                "dynamic Bluetooth policy template is missing: {template}"
+                "dynamic compatibility policy template is missing: {template}"
             ));
         }
     }
