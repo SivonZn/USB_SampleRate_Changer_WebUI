@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000..3f3dc6d
 --- /dev/null
 +++ b/templates/offload_direct_dynamic_template.xml
-@@ -0,0 +1,394 @@
+@@ -0,0 +1,398 @@
 +<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 +<!-- Copyright (C) 2020 The Android Open Source Project
 +     Licensed under the Apache License, Version 2.0 (the "License");
@@ -179,8 +179,10 @@ index 0000000..3f3dc6d
 +                <!-- Output devices declaration, i.e. Sink DEVICE PORT -->
 +                <devicePort tagName="Earpiece" type="AUDIO_DEVICE_OUT_EARPIECE" role="sink">
 +                </devicePort>
++                <!-- usbsrctl:inherit-speaker-device -->
 +                <devicePort tagName="Speaker" type="AUDIO_DEVICE_OUT_SPEAKER" role="sink">
 +                </devicePort>
++                <!-- usbsrctl:inherit-speaker-safe-device -->
 +                <devicePort tagName="Speaker Safe" type="AUDIO_DEVICE_OUT_SPEAKER_SAFE" role="sink">
 +                </devicePort>
 +                <devicePort tagName="Wired Headset" type="AUDIO_DEVICE_OUT_WIRED_HEADSET" role="sink">
@@ -246,8 +248,10 @@ index 0000000..3f3dc6d
 +            </devicePorts>
 +            <!-- route declaration, i.e. list all available sources for a given sink -->
 +            <routes>
++                <!-- usbsrctl:inherit-speaker-route -->
 +                <route type="mix" sink="Speaker"
 +                       sources="primary output,deep buffer,direct_pcm,compressed_offload,mmap_no_irq_out,haptic,voip_rx"/>
++                <!-- usbsrctl:inherit-speaker-safe-route -->
 +                <route type="mix" sink="Speaker Safe"
 +                       sources="primary output,deep buffer,haptic,voip_rx"/>
 +                <route type="mix" sink="Earpiece"
@@ -403,7 +407,7 @@ new file mode 100644
 index 0000000..35c551d
 --- /dev/null
 +++ b/templates/offload_dynamic_template.xml
-@@ -0,0 +1,320 @@
+@@ -0,0 +1,324 @@
 +<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 +<!-- Copyright (C) 2020 The Android Open Source Project
 +     Licensed under the Apache License, Version 2.0 (the "License");
@@ -507,8 +511,10 @@ index 0000000..35c551d
 +                <!-- Output devices declaration, i.e. Sink DEVICE PORT -->
 +                <devicePort tagName="Earpiece" type="AUDIO_DEVICE_OUT_EARPIECE" role="sink">
 +                </devicePort>
++                <!-- usbsrctl:inherit-speaker-device -->
 +                <devicePort tagName="Speaker" type="AUDIO_DEVICE_OUT_SPEAKER" role="sink">
 +                </devicePort>
++                <!-- usbsrctl:inherit-speaker-safe-device -->
 +                <devicePort tagName="Speaker Safe" type="AUDIO_DEVICE_OUT_SPEAKER_SAFE" role="sink">
 +                </devicePort>
 +                <devicePort tagName="Wired Headset" type="AUDIO_DEVICE_OUT_WIRED_HEADSET" role="sink">
@@ -574,8 +580,10 @@ index 0000000..35c551d
 +            </devicePorts>
 +            <!-- route declaration, i.e. list all available sources for a given sink -->
 +            <routes>
++                <!-- usbsrctl:inherit-speaker-route -->
 +                <route type="mix" sink="Speaker"
 +                       sources="primary output,deep buffer,haptic,voip_rx"/>
++                <!-- usbsrctl:inherit-speaker-safe-route -->
 +                <route type="mix" sink="Speaker Safe"
 +                       sources="primary output,deep buffer,haptic,voip_rx"/>
 +                <route type="mix" sink="Earpiece"
@@ -729,7 +737,7 @@ new file mode 100644
 index 0000000..de3e94d
 --- /dev/null
 +++ b/templates/offload_hifi_playback_dynamic_template.xml
-@@ -0,0 +1,331 @@
+@@ -0,0 +1,335 @@
 +<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 +<!-- Copyright (C) 2020 The Android Open Source Project
 +     Licensed under the Apache License, Version 2.0 (the "License");
@@ -832,8 +840,10 @@ index 0000000..de3e94d
 +                <!-- Output devices declaration, i.e. Sink DEVICE PORT -->
 +                <devicePort tagName="Earpiece" type="AUDIO_DEVICE_OUT_EARPIECE" role="sink">
 +                </devicePort>
++                <!-- usbsrctl:inherit-speaker-device -->
 +                <devicePort tagName="Speaker" type="AUDIO_DEVICE_OUT_SPEAKER" role="sink">
 +                </devicePort>
++                <!-- usbsrctl:inherit-speaker-safe-device -->
 +                <devicePort tagName="Speaker Safe" type="AUDIO_DEVICE_OUT_SPEAKER_SAFE" role="sink">
 +                </devicePort>
 +                <devicePort tagName="Wired Headset" type="AUDIO_DEVICE_OUT_WIRED_HEADSET" role="sink">
@@ -879,8 +889,10 @@ index 0000000..de3e94d
 +            </devicePorts>
 +            <!-- route declaration, i.e. list all available sources for a given sink -->
 +            <routes>
++                <!-- usbsrctl:inherit-speaker-route -->
 +                <route type="mix" sink="Speaker"
 +                       sources="primary output,deep buffer,haptic,voip_rx"/>
++                <!-- usbsrctl:inherit-speaker-safe-route -->
 +                <route type="mix" sink="Speaker Safe"
 +                       sources="primary output,deep buffer,haptic,voip_rx"/>
 +                <route type="mix" sink="Earpiece"
@@ -1066,7 +1078,7 @@ new file mode 100644
 index 0000000..e791bde
 --- /dev/null
 +++ b/templates/offload_safer_dynamic_template.xml
-@@ -0,0 +1,331 @@
+@@ -0,0 +1,335 @@
 +<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 +<!-- Copyright (C) 2020 The Android Open Source Project
 +     Licensed under the Apache License, Version 2.0 (the "License");
@@ -1171,8 +1183,10 @@ index 0000000..e791bde
 +                <!-- Output devices declaration, i.e. Sink DEVICE PORT -->
 +                <devicePort tagName="Earpiece" type="AUDIO_DEVICE_OUT_EARPIECE" role="sink">
 +                </devicePort>
++                <!-- usbsrctl:inherit-speaker-device -->
 +                <devicePort tagName="Speaker" type="AUDIO_DEVICE_OUT_SPEAKER" role="sink">
 +                </devicePort>
++                <!-- usbsrctl:inherit-speaker-safe-device -->
 +                <devicePort tagName="Speaker Safe" type="AUDIO_DEVICE_OUT_SPEAKER_SAFE" role="sink">
 +                </devicePort>
 +                <devicePort tagName="Wired Headset" type="AUDIO_DEVICE_OUT_WIRED_HEADSET" role="sink">
@@ -1218,8 +1232,10 @@ index 0000000..e791bde
 +            </devicePorts>
 +            <!-- route declaration, i.e. list all available sources for a given sink -->
 +            <routes>
++                <!-- usbsrctl:inherit-speaker-route -->
 +                <route type="mix" sink="Speaker"
 +                       sources="primary output,deep buffer,haptic,voip_rx"/>
++                <!-- usbsrctl:inherit-speaker-safe-route -->
 +                <route type="mix" sink="Speaker Safe"
 +                       sources="primary output,deep buffer,haptic,voip_rx"/>
 +                <route type="mix" sink="Earpiece"
@@ -1403,7 +1419,7 @@ new file mode 100644
 index 0000000..1b586f0
 --- /dev/null
 +++ b/templates/bypass_offload_dynamic_template.xml
-@@ -0,0 +1,328 @@
+@@ -0,0 +1,332 @@
 +<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 +<!-- Copyright (C) 2020 The Android Open Source Project
 +     Licensed under the Apache License, Version 2.0 (the "License");
@@ -1504,8 +1520,10 @@ index 0000000..1b586f0
 +                <!-- Output devices declaration, i.e. Sink DEVICE PORT -->
 +                <devicePort tagName="Earpiece" type="AUDIO_DEVICE_OUT_EARPIECE" role="sink">
 +                </devicePort>
++                <!-- usbsrctl:inherit-speaker-device -->
 +                <devicePort tagName="Speaker" type="AUDIO_DEVICE_OUT_SPEAKER" role="sink">
 +                </devicePort>
++                <!-- usbsrctl:inherit-speaker-safe-device -->
 +                <devicePort tagName="Speaker Safe" type="AUDIO_DEVICE_OUT_SPEAKER_SAFE" role="sink">
 +                </devicePort>
 +                <devicePort tagName="Wired Headset" type="AUDIO_DEVICE_OUT_WIRED_HEADSET" role="sink">
@@ -1543,8 +1561,10 @@ index 0000000..1b586f0
 +            </devicePorts>
 +            <!-- route declaration, i.e. list all available sources for a given sink -->
 +            <routes>
++                <!-- usbsrctl:inherit-speaker-route -->
 +                <route type="mix" sink="Speaker"
 +                       sources="primary output,deep buffer,haptic,voip_rx"/>
++                <!-- usbsrctl:inherit-speaker-safe-route -->
 +                <route type="mix" sink="Speaker Safe"
 +                       sources="primary output,deep buffer,haptic,voip_rx"/>
 +                <route type="mix" sink="Earpiece"
@@ -1737,7 +1757,7 @@ new file mode 100644
 index 0000000..0aca17f
 --- /dev/null
 +++ b/templates/bypass_offload_safer_dynamic_template.xml
-@@ -0,0 +1,330 @@
+@@ -0,0 +1,334 @@
 +<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 +<!-- Copyright (C) 2020 The Android Open Source Project
 +     Licensed under the Apache License, Version 2.0 (the "License");
@@ -1837,8 +1857,10 @@ index 0000000..0aca17f
 +                <!-- Output devices declaration, i.e. Sink DEVICE PORT -->
 +                <devicePort tagName="Earpiece" type="AUDIO_DEVICE_OUT_EARPIECE" role="sink">
 +                </devicePort>
++                <!-- usbsrctl:inherit-speaker-device -->
 +                <devicePort tagName="Speaker" type="AUDIO_DEVICE_OUT_SPEAKER" role="sink">
 +                </devicePort>
++                <!-- usbsrctl:inherit-speaker-safe-device -->
 +                <devicePort tagName="Speaker Safe" type="AUDIO_DEVICE_OUT_SPEAKER_SAFE" role="sink">
 +                </devicePort>
 +                <devicePort tagName="Wired Headset" type="AUDIO_DEVICE_OUT_WIRED_HEADSET" role="sink">
@@ -1876,8 +1898,10 @@ index 0000000..0aca17f
 +            </devicePorts>
 +            <!-- route declaration, i.e. list all available sources for a given sink -->
 +            <routes>
++                <!-- usbsrctl:inherit-speaker-route -->
 +                <route type="mix" sink="Speaker"
 +                       sources="primary output,deep buffer,haptic,voip_rx"/>
++                <!-- usbsrctl:inherit-speaker-safe-route -->
 +                <route type="mix" sink="Speaker Safe"
 +                       sources="primary output,deep buffer,haptic,voip_rx"/>
 +                <route type="mix" sink="Earpiece"
@@ -2073,7 +2097,7 @@ new file mode 100644
 index 0000000..30903fe
 --- /dev/null
 +++ b/templates/legacy_dynamic_template.xml
-@@ -0,0 +1,257 @@
+@@ -0,0 +1,259 @@
 +<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 +<!-- Copyright (C) 2016 The Android Open Source Project
 +     Licensed under the Apache License, Version 2.0 (the "License");
@@ -2146,6 +2170,7 @@ index 0000000..30903fe
 +            <devicePorts>
 +                <devicePort tagName="Earpiece" type="AUDIO_DEVICE_OUT_EARPIECE" role="sink">
 +                </devicePort>
++                <!-- usbsrctl:inherit-speaker-device -->
 +                <devicePort tagName="Speaker" type="AUDIO_DEVICE_OUT_SPEAKER" role="sink">
 +                </devicePort>
 +                <devicePort tagName="Wired Headset" type="AUDIO_DEVICE_OUT_WIRED_HEADSET" role="sink">
@@ -2176,6 +2201,7 @@ index 0000000..30903fe
 +            <routes>
 +                <route type="mix" sink="Earpiece"
 +                       sources="primary output,deep_buffer,voip_rx"/>
++                <!-- usbsrctl:inherit-speaker-route -->
 +                <route type="mix" sink="Speaker"
 +                       sources="primary output,deep_buffer,voip_rx"/>
 +                <route type="mix" sink="Wired Headset"
@@ -2336,7 +2362,7 @@ new file mode 100644
 index 0000000..8c703f9
 --- /dev/null
 +++ b/templates/safest_dynamic_template.xml
-@@ -0,0 +1,314 @@
+@@ -0,0 +1,316 @@
 +<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 +<!-- Copyright (C) 2015 The Android Open Source Project
 +
@@ -2414,6 +2440,7 @@ index 0000000..8c703f9
 +                   <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
 +                             samplingRates="48000" channelMasks="AUDIO_CHANNEL_OUT_MONO"/>
 +                </devicePort>
++                <!-- usbsrctl:inherit-speaker-device -->
 +                <devicePort tagName="Speaker" role="sink" type="AUDIO_DEVICE_OUT_SPEAKER">
 +                    <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
 +                             samplingRates="48000" channelMasks="AUDIO_CHANNEL_OUT_STEREO"/>
@@ -2498,6 +2525,7 @@ index 0000000..8c703f9
 +            <routes>
 +                <route type="mix" sink="Earpiece"
 +                       sources="primary output,deep_buffer"/>
++                <!-- usbsrctl:inherit-speaker-route -->
 +                <route type="mix" sink="Speaker"
 +                       sources="primary output,deep_buffer,FM Tuner In"/>
 +                <route type="mix" sink="Wired Headset"
