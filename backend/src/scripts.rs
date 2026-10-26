@@ -286,6 +286,10 @@ pub(crate) fn render_policy_script(
 }
 
 pub(crate) fn render_cleanup_script(module_dir: &Path) -> (String, Vec<String>) {
+    render_cleanup_script_for_backend(module_dir, false)
+}
+
+pub(crate) fn render_cleanup_script_for_backend(module_dir: &Path, aidl: bool) -> (String, Vec<String>) {
     let extras = module_dir.join(CORE_DIR).join("extras");
     let steps = [
         (
@@ -338,12 +342,16 @@ pub(crate) fn render_cleanup_script(module_dir: &Path) -> (String, Vec<String>) 
     .expect("Bluetooth HAL reset always requires an audio restart");
     let commands = steps
         .iter()
+        .filter(|(label, _)| !aidl || *label != "policy")
         .map(|(_, command)| command.clone())
         .chain(std::iter::once(restart.clone()))
         .collect();
     let mut script = GUARDED_SHELL_PREFIX.to_string();
     script.push_str("cleanup_failure=0\necho 'controller_upstream_started=1' >&2\n");
     for (label, command) in steps {
+        if aidl && label == "policy" {
+            continue;
+        }
         script.push_str(&format!(
             "echo 'cleanup_step_started={label}'\n{command}\ncleanup_status=$?\necho \"cleanup_step_exit={label}:$cleanup_status\"\nif [ \"$cleanup_failure\" -eq 0 ] && [ \"$cleanup_status\" -ne 0 ]; then cleanup_failure=$cleanup_status; fi\n"
         ));

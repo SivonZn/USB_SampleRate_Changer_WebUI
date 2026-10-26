@@ -223,7 +223,17 @@ pub(crate) fn run_extra(action: ExtraAction) -> Result<i32, String> {
     )
 }
 
-pub(crate) fn run_operation(mut settings: Settings, action: Action) -> Result<i32, String> {
+/// Dispatch policy mutations to the additive AIDL backend when the live
+/// framework reports an Audio Core AIDL policy.  Traditional XML/HIDL devices
+/// continue through the original controller pipeline below unchanged.
+pub(crate) fn run_operation(settings: Settings, action: Action) -> Result<i32, String> {
+    if crate::aidl_backend::active_is_aidl() {
+        return crate::aidl_backend::run_operation(settings, action);
+    }
+    run_traditional_operation(settings, action)
+}
+
+fn run_traditional_operation(mut settings: Settings, action: Action) -> Result<i32, String> {
     let module_dir = module_dir()?;
     validate_settings_for_action(&settings, &module_dir, action)?;
     ensure_state_layout()?;
@@ -266,11 +276,22 @@ pub(crate) fn run_operation(mut settings: Settings, action: Action) -> Result<i3
 
 pub(crate) fn run_cleanup() -> Result<i32, String> {
     let module_dir = module_dir()?;
+    let aidl = crate::aidl_backend::active_is_aidl();
+    if aidl {
+        let code = crate::aidl_backend::run_operation(Settings::default(), Action::Reset)?;
+        if code != 0 {
+            return Ok(code);
+        }
+    }
     ensure_state_layout()?;
     let lock = acquire_operation_lock()?;
     let namespace = namespace_info();
     let (route, command) = script_runner(&namespace);
-    let (generated, business_commands) = render_cleanup_script(&module_dir);
+    let (generated, business_commands) = if aidl {
+        crate::scripts::render_cleanup_script_for_backend(&module_dir, true)
+    } else {
+        render_cleanup_script(&module_dir)
+    };
     let execution = execute_script_locked(&generated, &namespace, CLEANUP_TIMEOUT, &lock)?;
     finalize_operation(
         OperationContext {
@@ -1162,7 +1183,7 @@ fn append_capped(target: &mut Vec<u8>, bytes: &[u8], limit: usize, truncated: &m
     }
 }
 
-enum Persistence<'a> {
+pub(crate) enum Persistence<'a> {
     PolicyApply(&'a Settings),
     PolicyReset,
     Extra(&'a ExtraAction),
@@ -1192,24 +1213,24 @@ impl Persistence<'_> {
     }
 }
 
-struct OperationContext<'a> {
-    action: &'a str,
-    kind: OperationKind,
-    route: &'a str,
-    command: &'a str,
-    business_commands: &'a [String],
-    script: &'a str,
-    a2dp_state: Option<A2dpState>,
-    persistence: Persistence<'a>,
-    reapply_progress: Option<&'a ReapplyProgress>,
-    phased_progress: Option<&'a PhasedMutationProgress>,
+pub(crate) struct OperationContext<'a> {
+    pub(crate) action: &'a str,
+    pub(crate) kind: OperationKind,
+    pub(crate) route: &'a str,
+    pub(crate) command: &'a str,
+    pub(crate) business_commands: &'a [String],
+    pub(crate) script: &'a str,
+    pub(crate) a2dp_state: Option<A2dpState>,
+    pub(crate) persistence: Persistence<'a>,
+    pub(crate) reapply_progress: Option<&'a ReapplyProgress>,
+    pub(crate) phased_progress: Option<&'a PhasedMutationProgress>,
 }
 
 /// Complete the common post-execution pipeline. Upstream failure, Bluetooth
 /// route verification, state persistence, and audit persistence remain
 /// distinct so callers can tell whether the Android system was already
 /// modified.
-fn finalize_operation(
+pub(crate) fn finalize_operation(
     context: OperationContext<'_>,
     execution: ExecutionResult,
 ) -> Result<i32, String> {
@@ -1523,7 +1544,7 @@ unsafe fn libc_flock(fd: i32, operation: i32) -> i32 {
     flock(fd, operation)
 }
 
-fn script_runner(namespace: &NamespaceInfo) -> (&'static str, String) {
+pub(crate) fn script_runner(namespace: &NamespaceInfo) -> (&'static str, String) {
     if namespace.is_global() == Some(true) {
         ("current-namespace", "/system/bin/sh -s".to_string())
     } else {
@@ -1555,7 +1576,7 @@ fn execute_script(
     Ok(output)
 }
 
-fn execute_script_locked(
+pub(crate) fn execute_script_locked(
     script: &str,
     namespace: &NamespaceInfo,
     timeout: Duration,

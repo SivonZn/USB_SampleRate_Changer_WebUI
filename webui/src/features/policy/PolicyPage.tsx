@@ -34,8 +34,15 @@ export function PolicyPage(props: {
         ? props.tx("policy.status.disconnected")
         : props.tx("policy.status.unknown");
   };
+  const system = () => props.model.status().system;
+  const isAidl = () => system().audioBackend === "aidl";
+  const aidlLabel = () => system().aidlCoreVersion
+    ? `AIDL v${system().aidlCoreVersion}`
+    : "AIDL";
   const dynamicMode = () => props.model.settings().policy.endsWith("-dynamic");
-  const visiblePolicyOptions = () => policyOptionsForMode(props.policyOptions, props.model.settings().policy);
+  const visiblePolicyOptions = () => isAidl()
+    ? props.policyOptions.filter(({ value }) => value !== "legacy" && !value.endsWith("-dynamic"))
+    : policyOptionsForMode(props.policyOptions, props.model.settings().policy);
   const selectedPolicyLabel = () => label(props.policyOptions.find((option) => option.value === props.model.settings().policy) ?? { value: "", labelKey: "" });
   const policySelectGroups = () => groupPolicyOptions(visiblePolicyOptions()).map(({ labelKey, options }) => ({
     label: props.tx(labelKey),
@@ -69,7 +76,16 @@ export function PolicyPage(props: {
     <section class="page-panel" data-page="policy" aria-label={props.tx("policy.page")}>
       <main class="page-content">
         <section class="card preview-card">
-          <SectionHeading title={props.tx("policy.preview")} />
+          <div class="section-heading">
+            <h2>{props.tx("policy.preview")}</h2>
+            <Show when={isAidl()}>
+              <span
+                class="aidl-tip"
+                title={props.tx("policy.aidl.tip")}
+                aria-label={props.tx("policy.aidl.tip")}
+              >{aidlLabel()}</span>
+            </Show>
+          </div>
           <div class="summary-line">
             <span class="summary-key">{props.tx("policy.summary.policy")}</span>
             <strong>{selectedPolicyLabel()}</strong>
@@ -86,7 +102,7 @@ export function PolicyPage(props: {
           </div>
           <div class="preview-actions">
             <button class="secondary-button" onClick={() => void props.model.reset()} disabled={props.model.busy()}>{props.model.activeOperation() === "policy.reset" ? props.tx("common.working") : props.tx("common.reset")}</button>
-            <button class="primary-button" onClick={() => void props.model.apply()} disabled={props.model.busy()}>{props.model.activeOperation() === "policy.apply" ? props.tx("common.working") : props.tx("common.apply")}</button>
+            <button class="primary-button" onClick={() => void props.model.apply()} disabled={props.model.busy() || (isAidl() && !system().aidlApplySupported)}>{props.model.activeOperation() === "policy.apply" ? props.tx("common.working") : props.tx("common.apply")}</button>
           </div>
         </section>
 
@@ -95,7 +111,7 @@ export function PolicyPage(props: {
             <SectionHeading title={props.tx("policy.section")} />
             <div class="field-label-row"><label class="field-label" for="policy">{props.tx("policy.template")}</label><button type="button" class="inline-link" onClick={props.onOpenHelp}>ⓘ {props.tx("policy.guide")}</button></div>
             <SelectField id="policy" title={props.tx("policy.template.select")} value={props.model.settings().policy} options={[]} groups={policySelectGroups()} displayLabel={selectedPolicyLabel()} language={props.language} onChange={(value) => props.model.update("policy", value)} />
-            <div class="policy-mode-toggle"><ToggleRow label={props.tx("policy.dynamic.label")} description={props.tx("policy.dynamic.description")} checked={dynamicMode()} onChange={setDynamicCompatibility} /></div>
+            <Show when={!isAidl()}><div class="policy-mode-toggle"><ToggleRow label={props.tx("policy.dynamic.label")} description={props.tx("policy.dynamic.description")} checked={dynamicMode()} onChange={setDynamicCompatibility} /></div></Show>
           </article>
 
           <article class="card section-card">
@@ -108,7 +124,7 @@ export function PolicyPage(props: {
           </article>
         </section>
 
-        <section class="card section-card">
+        <Show when={!isAidl()}><section class="card section-card">
           <SectionHeading title={props.tx("policy.switches")} />
           <div class="switch-grid">
             <For each={props.switchOptions}>{(option) => {
@@ -119,7 +135,35 @@ export function PolicyPage(props: {
                 : null;
             }}</For>
           </div>
-        </section>
+        </section></Show>
+
+        <Show when={isAidl()}>
+          <details class="card aidl-card">
+            <summary class="aidl-summary">
+              <strong>{aidlLabel()}</strong>
+              <span>{system().aidlConfigAdapter || "read-only"}</span>
+              <span>{system().aidlConfigTopology || "—"}</span>
+              <span>USB {system().aidlUsbReachableMixPortCount ?? 0}</span>
+            </summary>
+            <div class="aidl-detail-content">
+              <div class="aidl-detail-row">
+                <span>{props.tx("policy.aidl.source")}</span>
+                <strong>{system().aidlConfigPath || system().audioConfigSource || "—"}</strong>
+              </div>
+              <div class="aidl-detail-row">
+                <span>{props.tx("policy.aidl.behaviors")}</span>
+                <strong class="aidl-port-behaviors">{system().aidlUsbPortBehaviors || "—"}</strong>
+              </div>
+              <div class="aidl-detail-row">
+                <span>{props.tx("policy.aidl.dynamic")}</span>
+                <strong>{system().aidlUsbDynamicPortCount ?? 0}</strong>
+              </div>
+              <Show when={system().aidlConfigError}>
+                <p class="field-help">{system().aidlConfigError}</p>
+              </Show>
+            </div>
+          </details>
+        </Show>
 
         <section class="status-strip card">
           <div><span class="label">audioserver</span><strong>{props.model.status().system.audioserverPid || props.tx("policy.status.notDetected")}</strong></div>

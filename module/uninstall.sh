@@ -19,9 +19,10 @@ else
     reset_failed=1
 fi
 
-rm -rf "/data/adb/usb_samplerate_changer_webui"
-rm -rf "/data/local/tmp/usb_samplerate_changer_webui"
-
-if [ "$reset_failed" -ne 0 ]; then
+if [ "$reset_failed" -eq 0 ]; then
+    rm -rf "/data/adb/usb_samplerate_changer_webui"
+    rm -rf "/data/local/tmp/usb_samplerate_changer_webui"
+else
     echo "USB SampleRate Changer: some audio settings could not be reset during uninstall" 1>&2
+    echo "Saved configuration and logs were retained for recovery" 1>&2
 fi
